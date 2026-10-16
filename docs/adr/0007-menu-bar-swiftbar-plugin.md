@@ -41,3 +41,10 @@ could inject menu actions (B2, M6).
   it.
 - Menu rendering runs every minute, so it must stay under 2 s (NFR-PERF).
 - Menu actions open Terminal because `claude` is interactive.
+
+## Amendment 2026-10-16 (Desktop per account, ADR-0008)
+The menu also gets one `Open <label> Desktop` item per account. Its action
+runs `ais desktop <account>` with `terminal=false`, because it opens an app
+and needs no Terminal. As with the resume items, only the validated account
+name goes into the action (FR-4.12, FR-6.5). `terminal=false` is checked by
+the spike probe's action item (G-1(i)) and again in M6.

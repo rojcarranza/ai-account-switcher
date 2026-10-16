@@ -61,3 +61,12 @@ simpler and easier. Facts from Claude Switcher's README (read 2026-10-16):
 - If G-1(b) shows `claude` does not create the credDir folder itself, this
   ADR is amended to let ais create only that empty folder (0700) after the
   setup yes, never writing inside it.
+
+## Amendment 2026-10-16 (G-1(b) result)
+G-1(b) showed `claude` neither creates nor needs the credDir folder: the
+path is only hashed into the Keychain service name, and a login with a
+missing folder worked (`docs/spike-results.md`). `ais setup` creates the
+empty folder (0700) after the setup yes, so the account has a visible home
+on disk, and never writes inside it. The spike also confirmed Claude
+Switcher's Work profile uses `~/.claude-accounts/work`, so its terminal login
+is reused as designed.

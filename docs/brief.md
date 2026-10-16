@@ -16,14 +16,14 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 - **Zero context loss:** in the same 2 weeks, 0 switches where I have to re-explain the task, measured by the resumed session showing the prior conversation and memory.
 
 ## MVP scope (3 to 5 bullets)
-1. **Two accounts, both signed in:** personal and work Claude Code (CLI) logins live side by side on one Mac, each with its own Keychain credential.
+1. **Two accounts, both signed in:** personal and work Claude Code (CLI) logins live side by side on one Mac, each with its own Keychain credential, and `ais desktop <account>` opens each account's own Claude Desktop window side by side.
 2. **One shared brain:** both accounts use the same `~/.claude` (session transcripts, memory, CLAUDE.md, skills, subagents, settings), so either one sees everything.
 3. **One-command switch and resume:** a command such as `ais switch work` reopens the current session (same session ID) under the other account.
 4. **Status at a glance:** `ais status` shows which account is active and whether each one is signed in, and an optional SwiftBar menu bar plugin shows the same with one-click switch actions.
 5. **Built for more AIs later:** a small provider plug-in shape with only Claude implemented, plus a reversible install that backs up `~/.claude` first.
 
 ## Non-goals (at least 5)
-1. No Claude desktop app or claude.ai web chat support in the MVP; terminal Claude Code only.
+1. No claude.ai web chat. Claude Desktop only as one separate instance per account; no single Desktop that lists both accounts' sessions (next release, rojcarranza/ai-account-switcher#1).
 2. No automatic switching when a limit hits; the user runs the switch command.
 3. No second AI provider implemented; only the plug-in shape exists.
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
@@ -58,3 +58,4 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 
 ## Change log
 - 2026-10-16: MVP bullet 4 and non-goal 4 changed to add an optional SwiftBar menu bar plugin (user approved; Claude Switcher-style menu status without a native app).
+- 2026-10-16: MVP bullet 1 and non-goal 1 changed to add one Claude Desktop instance per account (user approved; ais replaces Claude Switcher, which the user will uninstall; design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`).

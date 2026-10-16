@@ -171,13 +171,23 @@ Verification: `python3 -m unittest tests.test_status tests.test_menu` passes, in
 
 ### FR-5 Built for more AIs, reversible install
 User story: As a developer who may add another AI tool later, I want providers to be pluggable and the install to be fully undoable so that growth is cheap and trying it is safe.
-- FR-5.1 WHEN any command needs provider behaviour THE SYSTEM SHALL call it only through the provider interface: `env_for`, `billing_risks`, `resume_command`, `start_command`, `login_command`, `newest_session`, `recent_sessions`, `find_session`, `open_session_pid`, `has_credential`, `snapshot_paths`, `self_check`, `limit_time`.
+- FR-5.1 WHEN any command needs provider behaviour THE SYSTEM SHALL call it only through the provider interface: `env_for`, `billing_risks`, `resume_command`, `start_command`, `login_command`, `newest_session`, `recent_sessions`, `find_session`, `open_session_pid`, `has_credential`, `snapshot_paths`, `self_check`, `limit_time`, and for FR-6 `desktop_data_dir`, `desktop_launch_command`, `desktop_running_pid`.
 - FR-5.2 WHEN loading providers THE SYSTEM SHALL use a static name-to-module table in code; IF a provider name in `config.json` is not in the table THEN it SHALL exit with code 78 and list the registered providers.
-- FR-5.3 WHEN the user runs `ais uninstall` THE SYSTEM SHALL list what it will remove, ask for a yes, remove `~/.config/ais/` (asking separately whether to delete `snapshots/`, and printing their location and size when kept), remove the SwiftBar plugin file if `state.json` records that ais installed it, leave `~/.claude`, `~/.claude.json`, `~/.claude-accounts/` and all Keychain items untouched, and print the manual steps to remove `~/.local/bin/ais` and `~/.local/bin/ais.prev`, `~/.claude-accounts/<account>`, the extra Keychain item and the `~/.zshrc` line.
-- FR-5.4 WHERE `--dry-run` is passed to `setup`, `switch`, `run`, `login`, `menu install`, `menu uninstall` or `uninstall` THE SYSTEM SHALL print what it would do and change nothing.
+- FR-5.3 WHEN the user runs `ais uninstall` THE SYSTEM SHALL list what it will remove, ask for a yes, remove `~/.config/ais/` (asking separately whether to delete `snapshots/`, and printing their location and size when kept), remove the SwiftBar plugin file if `state.json` records that ais installed it, leave `~/.claude`, `~/.claude.json`, `~/.claude-accounts/` and all Keychain items untouched, and print the manual steps to remove `~/.local/bin/ais` and `~/.local/bin/ais.prev`, `~/.claude-accounts/<account>`, the extra Keychain item and the `~/.zshrc` line, and list the Desktop data folders `~/Library/Application Support/Claude-ais-<account>` (kept: they hold the Desktop sign-in).
+- FR-5.4 WHERE `--dry-run` is passed to `setup`, `switch`, `run`, `login`, `desktop`, `menu install`, `menu uninstall` or `uninstall` THE SYSTEM SHALL print what it would do and change nothing (`desktop` still runs its read-only running-instance check).
 - FR-5.5 IF uninstall cannot remove a file THEN THE SYSTEM SHALL stop, print the path and the error, leave the remaining files in place, and exit with code 73.
 - FR-5.6 WHEN ais reads, changes and writes `state.json`, `config.json` or `cache.json`, or rotates `ais.log`, THE SYSTEM SHALL hold an `fcntl.flock` on `~/.config/ais/.lock` for the whole operation, never while waiting for user input, and SHALL drop `state.json` entries whose transcript no longer exists.
 Verification: `python3 -m unittest tests.test_providers tests.test_uninstall tests.test_dry_run tests.test_flock` passes; a fake second provider in the tests is added by one module plus one table entry.
+
+### FR-6 Claude Desktop per account (added 2026-10-16, design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`, ADR-0008)
+User story: As a user with two accounts, I want to open the Claude Desktop app for either account and keep both open side by side so that I can work on different projects in parallel and stop using Claude Switcher.
+- FR-6.1 WHEN the user runs `ais desktop <account>` for the default account THE SYSTEM SHALL launch Claude Desktop with `open -a <app>` and no `--user-data-dir`; for any other account it SHALL launch a new instance with `open -n -a <app> --args --user-data-dir=<home>/Library/Application Support/Claude-ais-<account>`, the folder derived from the account name and not stored in `config.json`.
+- FR-6.2 IF a `…/Contents/MacOS/Claude` process (never a `Claude Helper` process) is already running for that account (args contain exactly `--user-data-dir=<that folder>`, or, for the default account, no `--user-data-dir`) THEN THE SYSTEM SHALL NOT launch a second instance, SHALL print `<label> Desktop is already open (PID n)`, and exit 0. Detection uses one `ps -ww -o pid=,args=` call; the folder is the text after `--user-data-dir=` up to the next ` --` or the end of the line.
+- FR-6.3 IF neither `/Applications/Claude.app` nor `~/Applications/Claude.app` exists THEN THE SYSTEM SHALL exit 69 with `Claude Desktop not found in /Applications or ~/Applications`; IF `open` fails or does not finish in 10 s THEN it SHALL exit 69 with `open`'s error text.
+- FR-6.4 WHEN opening a Desktop instance THE SYSTEM SHALL NOT read, write or delete any Keychain item, `~/.claude`, `~/.claude.json`, `~/.claude-accounts/` or Claude Switcher's files; the user signs in inside the Desktop window. `ais desktop` changes no ais state, so it writes no log line (NFR-OPS).
+- FR-6.5 WHEN `ais menu render` prints the menu THE SYSTEM SHALL add one `Open <label> Desktop` item per account whose action is `bash=<ais path> param1=desktop param2=<account> terminal=false`, with only the validated account name as an argument.
+- FR-6.6 THE SYSTEM SHALL ship `docs/migrate-from-claude-switcher.md`, a step-by-step guide (no code) to remove Claude Switcher after ais works, in the order and with the keep list given in the design document.
+Verification: `python3 -m unittest tests.test_desktop tests.test_menu tests.test_dry_run` passes, including a `ps` fixture with helper processes, Claude Switcher's instance and an ais instance whose path has spaces; manual check M6 in `docs/manual-checks.md` (Personal and Work Desktop side by side, a second `ais desktop work` does not start a duplicate).
 
 ## Non-functional requirements
 - NFR-PERF: `ais switch` reaches the `claude` spawn in p95 < 1 s with a warm `cache.json` and APFS cloning, measured on the Mac in plan task 19 and logged as tool time (FR-3.14); `ais menu render` finishes in p95 < 2 s with up to 5,000 transcript files, run once a minute, measured on the Mac in task 19; end to end, a switch takes under 30 s (brief metric), timed by hand in M2.
@@ -191,7 +201,7 @@ Documents created by the plan: `docs/spike-results.md` (G-1 to G-3 answers),
 `docs/usage.md` (daily use: `/exit`, then `ais switch`; `/compact` advice).
 
 ## Out of scope
-1. No Claude desktop app or claude.ai web chat support in the MVP; terminal Claude Code only.
+1. No claude.ai web chat. Claude Desktop only as one separate instance per account (FR-6); no single Desktop that lists both accounts' sessions (next release, rojcarranza/ai-account-switcher#1).
 2. No automatic switching when a limit hits; the user runs the switch command.
 3. No second AI provider implemented; only the plug-in shape exists.
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
@@ -223,8 +233,11 @@ Plan: `docs/superpowers/plans/2026-10-16-ais-mvp.md`.
 | FR-4.7, FR-4.10 | 19 | `tests.test_menu_install` |
 | FR-4.8, FR-4.9, FR-4.11 to FR-4.14 | 18 | `tests.test_menu` |
 | FR-5.1, FR-5.2 | 5 | `tests.test_providers` |
-| FR-5.3, FR-5.4, FR-5.5 | 17, 19 | `tests.test_uninstall`, `tests.test_dry_run` |
+| FR-5.3, FR-5.4, FR-5.5 | 17, 17b, 19 | `tests.test_uninstall`, `tests.test_dry_run` |
 | FR-5.6 | 3 | `tests.test_flock` |
+| FR-6.1 to FR-6.4 | 17b | `tests.test_desktop`, `tests.test_dry_run` |
+| FR-6.5 | 18 | `tests.test_menu` |
+| FR-6.6 | 20 | `docs/migrate-from-claude-switcher.md`, M6 |
 | NFR-PERF | 18, 20 | `test_render_under_2s_with_5000_cached_transcripts`, M4 |
 | NFR-SEC | 5, 6, 10, 13, 18 | `tests.test_providers`, `tests.test_env`, `test_never_calls_security_with_w_or_g`, `test_run_rejects_resume_and_continue_flags`, `test_malicious_title_and_folder_sanitized_not_in_action` |
 | NFR-OPS | 3, 14 | `tests.test_store`, `test_tool_time_logged` |
@@ -313,3 +326,12 @@ Plan reviews 2026-10-16 (red-team subagent and architecture-guardian, files only
 - [minor] all accepted: G-1(c) simulation defined; signal deaths 128+N; "never collide" softened; stale log lines marked superseded; spike redaction; billing-guard roots injectable and managed profile; flock covers rotation, no prompts under lock, state pruning; setup offers existing `~/.claude-accounts/*`; uninstall lists `~/.local/bin/ais`; unknown config version exits 78; `menu_privacy`; manual checks cover NFD and `pgrep`/`lsof` until macOS CI is on.
 - [minor, architecture-guardian] cache owned by `core.py` (FR-4.2); snapshot paths from the provider (FR-3.7); who creates the credDir → G-1(b) rule.
 - Rejected: shipping the SwiftBar menu later (alternative e); instead the plan finishes and proves the CLI before the two menu tasks.
+
+Build gates 2026-10-16 (plan task 2, details in `docs/spike-results.md`):
+- G-2: Consumer Terms (https://www.anthropic.com/legal/consumer-terms, read 2026-10-16) do not restrict holding or switching between two of one's own accounts. They bar sharing an account and bypassing protective measures. The user read that clause and accepted it on 2026-10-16. Build may proceed.
+- G-3: both accounts are the user's own personal Pro subscriptions; no Team, Enterprise or employer policy applies.
+- G-1(a) works: `/login` in a running session switches the account and keeps the conversation, but one slot holds one account, so every switch is a browser login and the accounts cannot run side by side. The user re-decided and kept the MVP scope unchanged (2026-10-16).
+- G-1(b): `claude` does not create the credDir and does not need it (hash input only) → ADR-0002 amended.
+
+Change 2026-10-16 (Desktop per account, user approved the design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`):
+- FR-6.1 to FR-6.6 added (ADR-0008); FR-5.1 provider methods, FR-5.3 lists Desktop folders, FR-5.4 adds `desktop`; out-of-scope 1 and brief non-goal 1 narrowed; part 2 deferred to rojcarranza/ai-account-switcher#1.
