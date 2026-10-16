@@ -14,10 +14,14 @@ Status: automatable parts only. Items (a), (c), (d), (e), (b) login, (h) SwiftBa
 - (j) A marker string such as "usage limit" in some transcript record, in a `message.content` text field.
 - G-2: terms do not forbid owning two accounts, but may forbid sharing accounts or circumventing limits.
 
-## (a) `/login` inside a running session — PENDING (user)
+## (a) `/login` inside a running session — WORKS (scope decision needed)
 Expected: `/login` as Work either keeps the conversation (then scope must be re-decided) or does not. Expected by the plan: it does not switch cleanly, so ais is still needed.
-Run: in a live interactive `claude` session on Personal, type `/login`, sign in as Work, then ask "what did we just discuss?". Record whether the conversation continued and which account `claude auth status` reports afterwards.
+Run (user, 2026-10-16, screenshot): `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude` (a throwaway slot, so the default slot is not overwritten). `/login` as PERSONAL -> "Login successful". `remember the word KIWI` -> "You've hit your session limit · resets 11:20pm (Europe/Amsterdam)" plus "Usage limit reached · continuing automatically at 11:20pm · esc to cancel". `/login` as WORK -> "Login successful". `what word did I ask you to remember?` -> "You asked me to remember **KIWI**."
+Result: `/login` in a running session switches the account and keeps the conversation.
+Cost of this route (from (b)): the second `/login` overwrote the slot's single Keychain item (`8cef0543`: cdat 18:32:40Z, mdat 18:33:50Z). One slot holds one account, so every switch is a browser OAuth login, and switching back means logging in again. The two accounts cannot run side by side in that slot.
+Interactive at-limit behaviour (for (c)): `claude` shows the limit and waits ("continuing automatically at 11:20pm · esc to cancel"); it does not exit.
 Failure rule: (a) works -> the user re-decides the MVP scope before building.
+Decision (user, 2026-10-16): keep the MVP scope. The user wants both accounts signed in side by side and one-command switching, which `/login` cannot give. Recorded in the `docs/requirements.md` Review log.
 
 ## (b) `CLAUDE_SECURESTORAGE_CONFIG_DIR` and Keychain naming — PARTIAL
 Commands: `python3 spike/b_keychain.py` (runs `security find-generic-password -s "Claude Code-credentials"` and `security dump-keychain`, keeping only lines containing `svce` / `Claude Code-credentials`; no `-w`, `-g`, `-d`); `python3 spike/h_status.py`; `strings` on the installed binary `~/.local/share/claude/versions/2.1.301` (read-only) to find the hashing code; `python3 spike/b_hash.py`.
@@ -58,7 +62,10 @@ User login run (2026-10-16, emails and org IDs redacted as PERSONAL / WORK):
 
 Conclusion: the credentials are separate per slot (confirmed by the Keychain timestamps), so the variable works as ADR-0002 assumes. The email, org and subscription that `auth status` prints come from the shared `~/.claude.json` `oauthAccount`, which the last `/login` overwrites (inferred: it matches that file on every call). `auth status` cannot tell which account a slot holds, only whether it has a credential (`loggedIn`). Billing per slot: shown in (c). At the same moment the default slot hit its session limit and the work slot answered normally, so the two slots use different accounts.
 
-Still PENDING (user): does `claude` create the credDir itself on login (use a fresh `~/.claude-accounts/spike`: confirm absent, run `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude`, `/login`, then `ls -ld`), and that the resulting service equals `Claude Code-credentials-8cef0543`.
+credDir creation (user login run for (a), 2026-10-16): `~/.claude-accounts/spike` did not exist before. After two successful `/login`s with `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike"`, `ls -la ~/.claude-accounts/spike` -> "No such file or directory", while Keychain item `Claude Code-credentials-8cef0543` (the expected service from the table above) was created (cdat 18:32:40Z). So `claude` does not create the credDir, and does not need it: the variable is used only as the hash input. Per the failure rule, ADR-0002 is amended so ais may create the empty folder (0700), or the folder can be skipped since nothing reads it. Choose in the ADR amendment.
+(b) Result: Pass (separate slots proven, service name matches the computed value, folder not created by `claude`).
+
+Previously PENDING (user), now answered above: does `claude` create the credDir itself on login (use a fresh `~/.claude-accounts/spike`: confirm absent, run `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude`, `/login`, then `ls -ld`), and that the resulting service equals `Claude Code-credentials-8cef0543`.
 
 Result: Pass (partial). Rule found, variable proven to select a different Keychain slot (logged out for a dir with no item). Full pass needs the login on `spike`.
 Failure rule: (b) fails -> build stops until a new ADR; if `claude` does not create the credDir -> ADR-0002 amended so ais creates only the empty folder (0700) after the FR-2.3 yes.
@@ -80,7 +87,10 @@ Expected: `claude --resume <id>` under Work continues a Personal session, append
 Commands (user): in `~/tmp/ais-spike`, start `claude` on Personal, ask for `sleep 120` via Bash, note the session id (`ls -t ~/.claude/projects/*/ | head`), `pkill -9 -f 'claude'` is NOT to be used broadly: kill that one PID from another terminal (`kill -9 <pid>`), then `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude --resume <id>`; `wc -l` the `.jsonl` before and after, and `ls` the project folder for new files. Repeat from `cd ~`. Then repeat with Work at its limit and with a logged-out dir (`.../spike` before login).
 Failure rule: fails -> the build stops until a new ADR picks another mechanism.
 
-## (d) `~/.claude.json` with two accounts — PENDING (user)
+## (d) `~/.claude.json` with two accounts — PASS (shared, identity follows the last login)
+Result (controller, 2026-10-16 after the (a)/(b) logins): there is one `~/.claude.json` (no per-account copies in `~`); it parses (92 top-level keys) and holds `oauthAccount` and `userID`. Every `/login`, in any slot, rewrites `oauthAccount` (seen in (b): PERSONAL -> WORK). Credentials stay per slot in the Keychain, and requests use the slot's credential (proven in (c)), so the shared identity is only a display value. ais must never read the account from it (FR-4.1). A copy is in `spike/raw/claude.json.after-logins` for (e). The full before/after key diff was not taken, because the logins happened before a "before" copy existed. Accepted, since (e) diffs over 30 minutes anyway.
+
+### Plan text (kept)
 Expected: `~/.claude.json` is shared (one file) with `oauthAccount` identity fields rewritten per login, OR per-account depending on the config dir.
 Commands (user): `python3 -c "import json;d=json.load(open('$HOME/.claude.json'));print(sorted(d), sorted(d.get('oauthAccount',{})))"` (keys only), before and after each `/login`; `cp ~/.claude.json spike/raw/claude.json.before` and `diff` key lists only.
 Partial evidence (2026-10-16, from (b)): one shared `~/.claude.json`; its `oauthAccount` is rewritten by each `/login` (now WORK after the work-slot login). Still to check: the before/after key diff above, and whether any other field changes.
@@ -173,6 +183,14 @@ Risks for later tasks:
 
 Desktop app (outside the MVP, brief non-goal 1): Claude Switcher runs a second Desktop instance as `/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/roj/Library/Application Support/Claude-work` next to the plain default instance (seen with `ps`). The user asked on 2026-10-16 for ais to do the same; that needs a scope change (brief, requirements, ADR) before any plan task.
 
+Desktop spike (2026-10-16, for that scope change):
+- `open -n -a Claude --args --user-data-dir="$HOME/Library/Application Support/Claude-ais-spike"`: the folder did not exist before; Claude.app created it and started a third instance (PID 76340) next to the default instance and Claude Switcher's `Claude-work` instance.
+- The user signed in (PERSONAL) in the new window. Afterwards neither terminal Keychain item had changed (`Claude Code-credentials` mdat 18:28:12Z, `-f9fb4ac6` mdat 18:13:14Z, check at 18:56:18Z), and `~/.claude.json` `oauthAccount` was unchanged (still WORK). A Desktop sign-in in its own data folder does not touch the terminal logins.
+- The user quit that window (Cmd+Q); the same `open -n` command reopened it (PID 78432) already signed in, with no sign-in screen. The sign-in persists in the data folder.
+- Launching again while it runs: the same `open -n … --user-data-dir=<same dir>` started a second process on the same folder (PID 79684). It was still running after 17 s, next to PID 78432. Claude.app does not stop a duplicate per data folder, so ais must check for a running instance with that `--user-data-dir` (from `ps` args) and must not launch a second one. The controller stopped the duplicate with SIGTERM.
+Result: Pass. Separate Desktop instances per account work with a fresh `--user-data-dir`, with the duplicate-launch caveat above.
+Part 2 (one Desktop showing both accounts' sessions) is deferred to rojcarranza/ai-account-switcher#1.
+
 ## G-2 Terms — DONE
 Sources: https://www.anthropic.com/legal/consumer-terms (effective October 8, 2025 as returned) and https://www.anthropic.com/legal/aup (effective date returned as November 12, 2026; reported as read). Fetched 2026-10-16.
 Findings:
@@ -186,6 +204,7 @@ Failure rule: terms forbid it -> the build stops. Not triggered on this reading.
 
 Draft Review-log line (not yet added to `docs/requirements.md`):
 `2026-10-16 G-2: Consumer Terms (https://www.anthropic.com/legal/consumer-terms, effective 2025-10-08) do not restrict holding or switching between two own accounts; they bar sharing an account with others and "bypassing any of our systems or protective measures" (limit evasion not named). Usage Policy (https://www.anthropic.com/legal/aup) bars extra accounts to evade detection/bans only. Build may proceed; user to confirm.`
+User confirmed on 2026-10-16 after reading the clause. Recorded in the `docs/requirements.md` Review log. G-2: Pass.
 
 ## G-3 Work account plan
 Expected: the Work plan is Team or Enterprise (from `subscriptionType`), which triggers the terms and employer-policy check.
