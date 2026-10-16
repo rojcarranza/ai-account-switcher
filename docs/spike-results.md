@@ -65,7 +65,7 @@ Conclusion: the credentials are separate per slot (confirmed by the Keychain tim
 credDir creation (user login run for (a), 2026-10-16): `~/.claude-accounts/spike` did not exist before. After two successful `/login`s with `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike"`, `ls -la ~/.claude-accounts/spike` -> "No such file or directory", while Keychain item `Claude Code-credentials-8cef0543` (the expected service from the table above) was created (cdat 18:32:40Z). So `claude` does not create the credDir, and does not need it: the variable is used only as the hash input. Per the failure rule, ADR-0002 is amended: `ais setup` creates the empty folder (0700) and never writes inside it.
 
 Which account a slot holds (2026-10-16 evening):
-- The default item was rewritten at 20:28 local (mdat `20261016182812Z`), after (c)'s runs at 20:19 and before the `spike` logins at 20:32. Nothing ais or the spike ran writes credentials; the cause is unknown (a `/login` in a plain `claude` session or another tool are both possible). During the first (e) run (21:26 to 21:56) the default slot answered while PERSONAL was still at its limit until 23:20, so the default slot most likely held WORK then.
+- The default item was rewritten at 20:28 local (mdat `20261016182812Z`), after (c)'s runs at 20:19 and before the `spike` logins at 20:32. None of the spike's own commands logs in or writes Keychain items (they only read attributes or send requests); the cause is unknown (a `/login` in a plain `claude` session or another tool are both possible). During the first (e) run (21:26 to 21:56) the default slot answered while PERSONAL was still at its limit until 23:20, so the default slot most likely held WORK then.
 - `claude -p "/usage"` is not per slot: both slots printed the same numbers every time, and the numbers switched together when `~/.claude.json` switched identity (WORK's window before the next login, PERSONAL's after). A `cachedUsageUtilization` key appeared in `~/.claude.json` some time between 20:37 and the 22:22 login (see (d); not proven to come from the login); it may be where `/usage` reads from. `/usage` cannot tell which account a slot holds.
 - The user ran `/login` as PERSONAL in a plain `claude` (Ghostty) at 22:22 local; the default item's mdat became `20261016202225Z`. Then a one-line `claude -p` request: default slot -> "You've hit your session limit · resets 11:20pm" (PERSONAL), work slot -> `OK` (WORK). Requests are the only reliable per-slot signal found, and only while one account is limited.
 - Consequence for users (to `docs/usage.md`, task 20): a `/login` inside a plain `claude` session replaces the default slot's credential; sign in to an extra account only in its own slot (`ais login <account>`).
@@ -81,7 +81,7 @@ Run by the controller 2026-10-16 with `claude -p --output-format json` (raw JSON
    Note: in the first try Claude Code moved `sleep 90` into a background task and wrote a tool_result at once, so a long command does not always leave an open tool call.
 5. Target logged out (credDir with no Keychain item): `--resume` -> exit 1, `is_error: true`, result `"Not logged in · Please run /login"`. Target at its limit: as in step 1, exit 1 with the limit text. ais passes exit 1 through (FR-3.8). The interactive messages were not checked.
 Also proves the slots bill different accounts: at the same moment the default slot was at its limit and the work slot was not.
-Still to try once by hand: the same flow in interactive `claude` (Personal resumes after 23:20 local).
+The same flow in interactive `claude` is left to manual check M2 (task 20); (a) already showed an interactive session keeps its conversation across accounts.
 Original plan text follows.
 
 ### Plan text (kept)
@@ -128,7 +128,7 @@ Additions found (all present in the 2.1.301 binary strings; the first group is a
 - Settings keys present in the binary: `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`, `forceLoginMethod`, `forceLoginOrgUUID` (not yet in FR-2.2). The `settings` docs page was fetched but the key table was not in the portion returned; names confirmed only from the binary. Flags: `--bare` (API key only), `--settings` (already listed), `--setting-sources`.
 - Not billing but account-adjacent, not proposed: `claude setup-token`, `claude auth` subcommands.
 
-Result: Pass (list recorded). The proposal for FR-2.2 is the first four bullets plus `forceLoginMethod`, `forceLoginOrgUUID`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`; Binary-only names are unverified against public docs. Owner: plan task 5 decides which names go into `BILLING_ENV` and FR-2.2 (noted in the task 5 text).
+Result: Pass (list recorded). The proposal for FR-2.2 is the first four bullets plus `forceLoginMethod`, `forceLoginOrgUUID`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`. Binary-only names are unverified against public docs. Owner: plan task 5 decides which names go into `BILLING_ENV` and FR-2.2 (noted in the task 5 text).
 Failure rule: none stated for (f).
 
 ## (g) Detecting a running `claude` and its cwd — DONE with caveats
@@ -220,9 +220,7 @@ Findings:
 Result: Pass with a caveat (reading is from a summarising fetch tool, not a human legal read; "protective measures" wording is ambiguous for limit evasion). The user read the clause and accepted it on 2026-10-16; the Review log entry carries this caveat and both links.
 Failure rule: terms forbid it -> the build stops. Not triggered on this reading.
 
-Draft Review-log line (not yet added to `docs/requirements.md`):
-`2026-10-16 G-2: Consumer Terms (https://www.anthropic.com/legal/consumer-terms, effective 2025-10-08) do not restrict holding or switching between two own accounts; they bar sharing an account with others and "bypassing any of our systems or protective measures" (limit evasion not named). Usage Policy (https://www.anthropic.com/legal/aup) bars extra accounts to evade detection/bans only. Build may proceed; user to confirm.`
-User confirmed on 2026-10-16 after reading the clause. Recorded in the `docs/requirements.md` Review log. G-2: Pass.
+User confirmed on 2026-10-16 after reading the clause. The final entry, with the caveats above and both links, is in the `docs/requirements.md` Review log ("Build gates 2026-10-16"). G-2: Pass.
 
 ## G-3 Work account plan
 Expected: the Work plan is Team or Enterprise (from `subscriptionType`), which triggers the terms and employer-policy check.
