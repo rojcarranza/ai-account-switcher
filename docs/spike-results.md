@@ -3,7 +3,7 @@
 Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). Scripts are in `spike/`; raw output only in `spike/raw/` (git-ignored, checked with `git check-ignore -v spike/raw/x`).
 Each "Expected" line was written before the command ran. Emails, org/account IDs and unrelated Keychain entries are redacted.
 
-Status (2026-10-16): complete. G-1 (a) to (j), G-2 and G-3 all have a result. (a) works, and the user kept the MVP scope; every other item passes. Plan task 9 is skipped because (e) passed.
+Status (2026-10-16): G-1 (a) to (j), G-2 and G-3 all have a result except the (e) rerun as a true two-account test. (a) works, and the user kept the MVP scope; every other item passes.
 
 ## Expectations written before running
 - (b) credDir exists and is empty; Keychain has `Claude Code-credentials` and no `-<hash>` service for work yet; the sha256 rule is findable in the installed package.
@@ -14,7 +14,7 @@ Status (2026-10-16): complete. G-1 (a) to (j), G-2 and G-3 all have a result. (a
 - (j) A marker string such as "usage limit" in some transcript record, in a `message.content` text field.
 - G-2: terms do not forbid owning two accounts, but may forbid sharing accounts or circumventing limits.
 
-## (a) `/login` inside a running session — WORKS (scope decision needed)
+## (a) `/login` inside a running session — WORKS (the user kept the MVP scope)
 Expected: `/login` as Work either keeps the conversation (then scope must be re-decided) or does not. Expected by the plan: it does not switch cleanly, so ais is still needed.
 Run (user, 2026-10-16, screenshot): `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude` (a throwaway slot, so the default slot is not overwritten). `/login` as PERSONAL -> "Login successful". `remember the word KIWI` -> "You've hit your session limit · resets 11:20pm (Europe/Amsterdam)" plus "Usage limit reached · continuing automatically at 11:20pm · esc to cancel". `/login` as WORK -> "Login successful". `what word did I ask you to remember?` -> "You asked me to remember **KIWI**."
 Result: `/login` in a running session switches the account and keeps the conversation.
@@ -23,7 +23,7 @@ Interactive at-limit behaviour (for (c)): `claude` shows the limit and waits ("c
 Failure rule: (a) works -> the user re-decides the MVP scope before building.
 Decision (user, 2026-10-16): keep the MVP scope. The user wants both accounts signed in side by side and one-command switching, which `/login` cannot give. Recorded in the `docs/requirements.md` Review log.
 
-## (b) `CLAUDE_SECURESTORAGE_CONFIG_DIR` and Keychain naming — PARTIAL
+## (b) `CLAUDE_SECURESTORAGE_CONFIG_DIR` and Keychain naming — PASS
 Commands: `python3 spike/b_keychain.py` (runs `security find-generic-password -s "Claude Code-credentials"` and `security dump-keychain`, keeping only lines containing `svce` / `Claude Code-credentials`; no `-w`, `-g`, `-d`); `python3 spike/h_status.py`; `strings` on the installed binary `~/.local/share/claude/versions/2.1.301` (read-only) to find the hashing code; `python3 spike/b_hash.py`.
 
 State found:
@@ -48,9 +48,9 @@ The string hashed is the variable's value exactly as given, NFC-normalized, UTF-
 | `/Users/roj/.claude-accounts/personal` | `Claude Code-credentials-65ac6854` |
 | `/Users/roj/.claude-accounts/spike` | `Claude Code-credentials-8cef0543` |
 
-Expected-but-unverified-until-login: work -> `Claude Code-credentials-f9fb4ac6`. The value was seen in the dump, so an item already exists for that service; whose account it holds is not known (no secret read). Not yet verified against a fresh login.
+Work -> `Claude Code-credentials-f9fb4ac6`: an item already existed (Claude Switcher's Work profile uses the same credDir); the user's WORK login below rewrote exactly that item, and the `spike` login created exactly `8cef0543`, so the formula is verified.
 
-Does `claude` honour the variable? `CLAUDE_SECURESTORAGE_CONFIG_DIR=/private/tmp/claude-501/ais-nonexistent-credir claude auth status` -> exit 2, `loggedIn: false`, `authMethod: none`, `configDirectory` still `/Users/roj/.claude`. So the variable selects the Keychain slot only, and `auth status` does not create the folder. With `~/.claude-accounts/work` the output has the same keys and `loggedIn` true, i.e. an item exists for that slot; `docs/progress.md` recorded that it showed the same account as default. Open for the user: confirm whether the work slot really holds the Work account (compare the redacted email of both calls by hand), or the Personal one.
+Does `claude` honour the variable? `CLAUDE_SECURESTORAGE_CONFIG_DIR=/private/tmp/claude-501/ais-nonexistent-credir claude auth status` -> exit 2, `loggedIn: false`, `authMethod: none`, `configDirectory` still `/Users/roj/.claude`. So the variable selects the Keychain slot only, and `auth status` does not create the folder. With `~/.claude-accounts/work` the output has the same keys and `loggedIn` true, i.e. an item exists for that slot; `docs/progress.md` recorded that it showed the same account as default; the explanation (shared identity) follows below.
 
 User login run (2026-10-16, emails and org IDs redacted as PERSONAL / WORK):
 - Before: `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude auth status` -> `loggedIn: true`, email PERSONAL.
@@ -62,12 +62,14 @@ User login run (2026-10-16, emails and org IDs redacted as PERSONAL / WORK):
 
 Conclusion: the credentials are separate per slot (confirmed by the Keychain timestamps), so the variable works as ADR-0002 assumes. The email, org and subscription that `auth status` prints come from the shared `~/.claude.json` `oauthAccount`, which the last `/login` overwrites (inferred: it matches that file on every call). `auth status` cannot tell which account a slot holds, only whether it has a credential (`loggedIn`). Billing per slot: shown in (c). At the same moment the default slot hit its session limit and the work slot answered normally, so the two slots use different accounts.
 
-credDir creation (user login run for (a), 2026-10-16): `~/.claude-accounts/spike` did not exist before. After two successful `/login`s with `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike"`, `ls -la ~/.claude-accounts/spike` -> "No such file or directory", while Keychain item `Claude Code-credentials-8cef0543` (the expected service from the table above) was created (cdat 18:32:40Z). So `claude` does not create the credDir, and does not need it: the variable is used only as the hash input. Per the failure rule, ADR-0002 is amended so ais may create the empty folder (0700), or the folder can be skipped since nothing reads it. Choose in the ADR amendment.
+credDir creation (user login run for (a), 2026-10-16): `~/.claude-accounts/spike` did not exist before. After two successful `/login`s with `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike"`, `ls -la ~/.claude-accounts/spike` -> "No such file or directory", while Keychain item `Claude Code-credentials-8cef0543` (the expected service from the table above) was created (cdat 18:32:40Z). So `claude` does not create the credDir, and does not need it: the variable is used only as the hash input. Per the failure rule, ADR-0002 is amended: `ais setup` creates the empty folder (0700) and never writes inside it.
+
+Which account a slot holds (2026-10-16 evening):
+- The default item was rewritten at 20:28 local (mdat `20261016182812Z`), after (c)'s runs at 20:19 and before the `spike` logins at 20:32. Nothing ais or the spike ran writes credentials; the cause is unknown (a `/login` in a plain `claude` session or another tool are both possible). During the first (e) run (21:26 to 21:56) the default slot answered while PERSONAL was still at its limit until 23:20, so the default slot most likely held WORK then.
+- `claude -p "/usage"` is not per slot: both slots printed the same numbers every time, and the numbers switched together when `~/.claude.json` switched identity (WORK's window before the next login, PERSONAL's after). A `cachedUsageUtilization` key in `~/.claude.json` appeared with that login. `/usage` cannot tell which account a slot holds.
+- The user ran `/login` as PERSONAL in a plain `claude` (Ghostty) at 22:22 local; the default item's mdat became `20261016202225Z`. Then a one-line `claude -p` request: default slot -> "You've hit your session limit · resets 11:20pm" (PERSONAL), work slot -> `OK` (WORK). Requests are the only reliable per-slot signal found, and only while one account is limited.
+- Consequence for users (to `docs/usage.md`, task 20): a `/login` inside a plain `claude` session replaces the default slot's credential; sign in to an extra account only in its own slot (`ais login <account>`).
 (b) Result: Pass (separate slots proven, service name matches the computed value, folder not created by `claude`).
-
-Previously PENDING (user), now answered above: does `claude` create the credDir itself on login (use a fresh `~/.claude-accounts/spike`: confirm absent, run `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude`, `/login`, then `ls -ld`), and that the resulting service equals `Claude Code-credentials-8cef0543`.
-
-Result (first pass): rule found, variable proven to select a different Keychain slot. Superseded by the full Pass above after the `spike` login.
 Failure rule: (b) fails -> build stops until a new ADR; if `claude` does not create the credDir -> ADR-0002 amended so ais creates only the empty folder (0700) after the FR-2.3 yes.
 
 ## (c) Resume across accounts — PASS (non-interactive `claude -p`; interactive run still worth a look)
@@ -88,20 +90,21 @@ Commands (user): in `~/tmp/ais-spike`, start `claude` on Personal, ask for `slee
 Failure rule: fails -> the build stops until a new ADR picks another mechanism.
 
 ## (d) `~/.claude.json` with two accounts — PASS (shared, identity follows the last login)
-Result (controller, 2026-10-16 after the (a)/(b) logins): there is one `~/.claude.json` (no per-account copies in `~`); it parses (92 top-level keys) and holds `oauthAccount` and `userID`. Every `/login`, in any slot, rewrites `oauthAccount` (seen in (b): PERSONAL -> WORK). Credentials stay per slot in the Keychain, and requests use the slot's credential (proven in (c)), so the shared identity is only a display value. ais must never read the account from it (FR-4.1). A copy is in `spike/raw/claude.json.after-logins` for (e). The full before/after key diff was not taken, because the logins happened before a "before" copy existed. Accepted, since (e) diffs over 30 minutes anyway.
+Result (controller, 2026-10-16 after the (a)/(b) logins): there is one `~/.claude.json` (no per-account copies in `~`); it parses (92 top-level keys) and holds `oauthAccount` and `userID`. Every `/login`, in any slot, rewrites `oauthAccount` (seen in (b): PERSONAL -> WORK). Credentials stay per slot in the Keychain, and requests use the slot's credential (proven in (c)), so the shared identity is only a display value. ais must never read the account from it (FR-4.1). A copy is in `spike/raw/claude.json.after-logins` (20:37 local, identity WORK).
+Before/after one login (that copy vs `~/.claude.json` after the user's PERSONAL `/login` at 22:22, compared by key and value hash, no values printed): no key removed; one key added, `cachedUsageUtilization`; `oauthAccount` changed in `accountCreatedAt`, `accountUuid`, `displayName`, `emailAddress`, `fullName`, `organizationName`, `organizationUuid`, `profileFetchedAt`, `subscriptionCreatedAt`; `userID` unchanged (it identifies the install, not the account). Other changed keys are caches and counters that also change with ordinary use over the 1 h 45 min between the copies (`cachedGrowthBookFeatures`, `numStartups`, `projects`, `skillUsage`, `tipsHistory` and similar), so this one diff cannot separate them from the login.
 
 ### Plan text (kept)
 Expected: `~/.claude.json` is shared (one file) with `oauthAccount` identity fields rewritten per login, OR per-account depending on the config dir.
 Commands (user): `python3 -c "import json;d=json.load(open('$HOME/.claude.json'));print(sorted(d), sorted(d.get('oauthAccount',{})))"` (keys only), before and after each `/login`; `cp ~/.claude.json spike/raw/claude.json.before` and `diff` key lists only.
-Partial evidence (2026-10-16, from (b)): one shared `~/.claude.json`; its `oauthAccount` is rewritten by each `/login` (now WORK after the work-slot login). Still to check: the before/after key diff above, and whether any other field changes.
+Gap accepted: no diff right before and right after a single login, with nothing else running; the identity fields above are the only ones a login is known to change. ais does not read or write this file, so the gap does not block the build.
 Failure rule: fails -> the build stops until a new ADR.
 
-## (e) Two accounts at once for 30 minutes — PASS (plan task 9 not needed)
+## (e) Two accounts at once for 30 minutes — RERUN PENDING (first run likely used one account in both slots, see (b))
 Expected: no corruption; `oauthAccount`/`userID` may flip.
 Run (controller, 2026-10-16 21:26:53 to 21:56:53 local, `python3 spike/e_concurrent.py "" 30`, log `spike/raw/e.log`): Personal (default slot, `~/tmp/ais-spike-e1`) and Work (work slot, `~/tmp/ais-spike-e2`) each resumed their own session with `claude -p` every 2 minutes, at the same time, while the user kept using a Claude Desktop session. Every 30 s the script parsed `~/.claude.json` and every `~/.claude/**/*.json` (plugin cache skipped), retrying once after 0.5 s to tell a mid-write read from a broken file, and logged hashes of `oauthAccount` and `userID`.
 Output: `{"parse_fail": 0, "transient": 0, "identity_changes": 0, "personal_ok": 15, "work_ok": 14, "personal_err": 0, "work_err": 0}`. Identity hashes stayed `oauthAccount=7305fab3 userID=6a51e1df` for the whole run: requests do not rewrite them, only `/login` does (see (b)). Both transcripts (`7acd3b3a…` 207 lines, `972d01cc…` 195 lines) parse line by line with 0 bad lines.
-Limits: a `claude -p` simulation, not two interactive TUI sessions; the interactive case is covered by M2/M6 on the Mac.
-Result: Pass. Plan task 9 (global lock) is skipped.
+Limits: a `claude -p` simulation, not two interactive TUI sessions; the interactive case is covered by M2/M6 on the Mac. The default slot answered throughout while PERSONAL was at its limit until 23:20, so both slots most likely held WORK (see (b), "Which account a slot holds"). The run shows two concurrent `claude` processes do not damage the shared files, not two accounts at once.
+Result of the first run: Pass for concurrency, not for two accounts. Rerun with PERSONAL restored in the default slot: 23:21 to 23:51 local, result below.
 Failure rule: fails -> plan task 9 (global lock, one running `claude` at a time).
 
 ## (f) Version range, billing/account variables and keys — DONE
@@ -119,7 +122,7 @@ Additions found (all present in the 2.1.301 binary strings; the first group is a
 - Settings keys present in the binary: `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`, `forceLoginMethod`, `forceLoginOrgUUID` (not yet in FR-2.2). The `settings` docs page was fetched but the key table was not in the portion returned; names confirmed only from the binary. Flags: `--bare` (API key only), `--settings` (already listed), `--setting-sources`.
 - Not billing but account-adjacent, not proposed: `claude setup-token`, `claude auth` subcommands.
 
-Result: Pass (list recorded). The proposal for FR-2.2 is the first four bullets plus `forceLoginMethod`, `forceLoginOrgUUID`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`; the controller decides what to add. Binary-only names are unverified against public docs.
+Result: Pass (list recorded). The proposal for FR-2.2 is the first four bullets plus `forceLoginMethod`, `forceLoginOrgUUID`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`; Binary-only names are unverified against public docs. Owner: plan task 5 decides which names go into `BILLING_ENV` and FR-2.2 (noted in the task 5 text).
 Failure rule: none stated for (f).
 
 ## (g) Detecting a running `claude` and its cwd — DONE with caveats
@@ -130,7 +133,7 @@ Output (home paths kept):
 - `pgrep -fl claude`: 30+ PIDs, mostly `Claude.app` Electron helpers, `Claude Switcher.app`, `claude bg-pty-host`, `claude bg-spare`; unusable without filtering.
 - Timings: `pgrep -x` 0.026 s; `pgrep -f` 0.026 s; `lsof -a -d cwd -p` 4 PIDs 0.056 s.
 - No terminal-started `claude` was running during the spike (all `-x` hits are the daemon and desktop-app sessions), so the common case, a terminal CLI, was not exercised. Note `pgrep -l` showed the daemon's name as `2.1.301` (the versioned binary name) while `-x claude` matched it, so the match depends on how the process was exec'd; the terminal CLI case must be checked.
-Findings for task design: `-x claude` also matches the daemon (cwd `/Users/roj`) and desktop-app sessions; ais must filter on argv (exclude `daemon`, `bg-*`) and decide whether desktop-app sessions count as "open".
+Findings for task design: `-x claude` also matches the daemon (cwd `/Users/roj`) and desktop-app sessions; ais must filter on argv (exclude `daemon`, `bg-*`) and decide whether desktop-app sessions count as "open". Owner: plan task 8 (noted in the task 8 text). The expectation "same PIDs as `-f` minus helpers" was not met as written (`-x` also matches the daemon and Desktop sessions); the item passes because the mechanism works with the argv filter.
 Terminal case (controller, 2026-10-16, `python3 spike/g_terminal.py`): a `claude -p` started from `~/tmp/ais-spike g ünï` (space and non-ASCII) was found by `pgrep -x claude` (5 PIDs, 0.048 s). `lsof -a -d cwd -p <pids> -Fn` returned `/Users/roj/tmp/ais-spike g ünï` for it (0.066 s), equal to `os.path.realpath` of the folder. Its argv starts with `claude`, unlike the daemon and Desktop-app sessions, so an argv filter can tell them apart.
 Result: Pass (mechanism, timing, terminal case, space and unicode folder). The NFD-from-Finder case is still for M5.
 Failure rule: fails -> FR-3.11 becomes a yes/no question and the menu shows no open badge.
@@ -156,13 +159,13 @@ From the README:
 - Refresh interval: file name `{name}.{time}.{ext}`, `{time}` = number + unit `ms`, `s`, `m`, `h` or `d`, e.g. `date.1m.sh`; interval optional; cron-style `<swiftbar.schedule>` metadata is an alternative.
 - Plugin folder: chosen by the user at first launch; every file in it is a plugin; hidden folders ignored, nested folders and symlinks traversed; `.swiftbarignore` excludes files.
 - Menu parameters: `bash=` absolute path of the script to run; `paramN=` arguments (`param0=`, `param1=`, ...); `terminal=` `false` runs in the background instead of opening Terminal (so `terminal=true` opens Terminal); `refresh=true` re-runs the plugin after click.
-- `disabled=`: not covered by the README text returned. PENDING: check the SwiftBar wiki or the installed app.
-- Plugin PATH: not stated. README lists env vars set for plugins (`SWIFTBAR_PLUGIN_PATH`, `SWIFTBAR_PLUGIN_DATA_PATH`, `OS_APPEARANCE`) and `<swiftbar.environment>[var=default]</swiftbar.environment>` for custom ones. PENDING (user): after installing SwiftBar, make a plugin that prints `echo $PATH` and record it; ais should use an absolute path to `~/.local/bin/ais`.
+- `disabled=` and plugin PATH: not in the README text returned; both answered by the live checks below. README also lists env vars set for plugins (`SWIFTBAR_PLUGIN_PATH`, `SWIFTBAR_PLUGIN_DATA_PATH`, `OS_APPEARANCE`).
 Live checks (2026-10-16, SwiftBar 2.1.1 installed by the user, plugin folder `~/SwiftBarPlugins`; `defaults read com.ameba.SwiftBar PluginDirectory` -> `/Users/roj/SwiftBarPlugins`; probe `spike/swiftbar_probe.sh`):
 - Plugin PATH: the user's full login-shell PATH, including `/Users/roj/.local/bin` and `/opt/homebrew/bin`; `command -v claude` -> `/Users/roj/.local/bin/claude`. No TTY (`tty` -> "not a tty").
 - Refresh: `ais-probe.1m.sh` ran every 60 s (log entries 18:43:51Z and 18:44:51Z).
 - `disabled=true`: the item shows greyed out and cannot be clicked (user screenshot).
 - `bash=/bin/sh param1=-c param2=… terminal=false`: clicking it ran the command in the background (one `action-ran` line in the log), no Terminal window.
+- `terminal=true` (the probe's "Terminal action test") was not clicked, so opening Terminal from a menu action is README-only. Deferred to manual check M3 (task 20), whose `Resume in Work` item uses it.
 - The probe was removed from `~/SwiftBarPlugins` afterwards.
 Result: Pass. ais still writes an explicit PATH into its plugin (FR-4.7), because another user's SwiftBar may not inherit the login shell.
 Failure rule: (i) fails -> the user decides whether the menu tasks stay in the MVP.
@@ -194,7 +197,7 @@ Desktop app (outside the MVP, brief non-goal 1): Claude Switcher runs a second D
 
 Desktop spike (2026-10-16, for that scope change):
 - `open -n -a Claude --args --user-data-dir="$HOME/Library/Application Support/Claude-ais-spike"`: the folder did not exist before; Claude.app created it and started a third instance (PID 76340) next to the default instance and Claude Switcher's `Claude-work` instance.
-- The user signed in (PERSONAL) in the new window. Afterwards neither terminal Keychain item had changed (`Claude Code-credentials` mdat 18:28:12Z, `-f9fb4ac6` mdat 18:13:14Z, check at 18:56:18Z), and `~/.claude.json` `oauthAccount` was unchanged (still WORK). A Desktop sign-in in its own data folder does not touch the terminal logins.
+- The user signed in (PERSONAL) in the new window. The window was opened after the SwiftBar probe's first run (18:43:51Z) and checked at 18:56:18Z; both terminal Keychain items were last changed before 18:43:51Z (`Claude Code-credentials` mdat 18:28:12Z, `-f9fb4ac6` mdat 18:13:14Z), so the sign-in changed neither, and `~/.claude.json` `oauthAccount` was unchanged (still WORK). A Desktop sign-in in its own data folder does not touch the terminal logins.
 - The user quit that window (Cmd+Q); the same `open -n` command reopened it (PID 78432) already signed in, with no sign-in screen. The sign-in persists in the data folder.
 - Launching again while it runs: the same `open -n … --user-data-dir=<same dir>` started a second process on the same folder (PID 79684). It was still running after 17 s, next to PID 78432. Claude.app does not stop a duplicate per data folder, so ais must check for a running instance with that `--user-data-dir` (from `ps` args) and must not launch a second one. The controller stopped the duplicate with SIGTERM.
 Result: Pass. Separate Desktop instances per account work with a fresh `--user-data-dir`, with the duplicate-launch caveat above.
@@ -208,7 +211,7 @@ Findings:
 - No clause expressly prohibits working around usage limits. Section 3 does bar "bypassing any of our systems or protective measures" in general; whether a limit-driven switch counts is not addressed. Section 4 describes technical limitations without prohibiting circumvention.
 - Usage Policy (paraphrase): bans opening extra accounts to avoid detection or get around guardrails, and evading a ban with another account. Does not address usage limits.
 - Automated access is barred except through an API key or where Anthropic permits it; ais drives the official `claude` CLI, not an extraction path.
-Result: Pass with a caveat (reading is from a summarising fetch tool, not a human legal read; "protective measures" wording is ambiguous for limit evasion). Recommend the user confirms before the build proceeds.
+Result: Pass with a caveat (reading is from a summarising fetch tool, not a human legal read; "protective measures" wording is ambiguous for limit evasion). The user read the clause and accepted it on 2026-10-16; the Review log entry carries this caveat and both links.
 Failure rule: terms forbid it -> the build stops. Not triggered on this reading.
 
 Draft Review-log line (not yet added to `docs/requirements.md`):
