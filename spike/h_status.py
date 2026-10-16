@@ -5,7 +5,7 @@ work = os.path.expanduser("~/.claude-accounts/work")
 for label, extra in (("default", {}), ("work", {"CLAUDE_SECURESTORAGE_CONFIG_DIR": work})):
     for i in range(3):
         t = time.time()
-        p = subprocess.run(["claude", "auth", "status"], capture_output=True, text=True, env={**os.environ, **extra})
+        p = subprocess.run(["claude", "auth", "status"], capture_output=True, text=True, env={**os.environ, **extra}, timeout=30)
         dt = time.time() - t
         out = p.stdout + p.stderr
         if i == 0:

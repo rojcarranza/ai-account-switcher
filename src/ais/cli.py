@@ -11,5 +11,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args == ["--version"]:
         print("ais " + __version__)
         return 0
+    if not args:
+        print("usage: ais --version", file=sys.stderr)
+        return EXIT_USAGE
     print("ais: unknown command: " + " ".join(args), file=sys.stderr)
     return EXIT_USAGE

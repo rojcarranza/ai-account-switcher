@@ -3,7 +3,7 @@ import subprocess
 
 
 def names(cmd, key):
-    out = subprocess.run(cmd, capture_output=True, text=True).stdout
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
     return [l.strip() for l in out.splitlines() if key in l]
 
 
