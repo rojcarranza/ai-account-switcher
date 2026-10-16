@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import json,sys,re; c=json.load(sys.stdin).get('tool_input',{}).get('command',''); b=re.search(r'\\bsecurity\\b[^;&|]*\\s-[a-zA-Z]*[wgd][a-zA-Z]*\\b',c) or re.search(r'\\bCLAUDE_CONFIG_DIR=',c); b and print('Blocked: printing Keychain secrets (security -w/-g/-d) or setting CLAUDE_CONFIG_DIR is forbidden by docs/architecture.md', file=sys.stderr); sys.exit(2 if b else 0)\""
+            "command": "python3 -c \"import json,sys,re; c=json.load(sys.stdin).get('tool_input',{}).get('command',''); b=re.search(r'\\bsecurity\\b[^;&|]*\\s[\\x22\\x27]?-[a-zA-Z]*[wgd][a-zA-Z]*\\b',c) or re.search(r'\\bCLAUDE_CONFIG_DIR=',c); b and print('Blocked: printing Keychain secrets (security -w/-g/-d) or setting CLAUDE_CONFIG_DIR is forbidden by docs/architecture.md', file=sys.stderr); sys.exit(2 if b else 0)\""
           }
         ]
       }

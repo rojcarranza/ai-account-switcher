@@ -38,6 +38,19 @@ class CliTest(unittest.TestCase):
                                timeout=30, stderr=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 64)
 
+    def test_reinstall_keeps_previous_version(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as dist:
+            bin_dir = os.path.join(home, ".local", "bin")
+            os.makedirs(bin_dir)
+            with open(os.path.join(bin_dir, "ais"), "w") as f:
+                f.write("old\n")
+            env = dict(os.environ, HOME=home)
+            for _ in range(2):
+                subprocess.run(["make", "install", "DIST=" + dist], cwd=ROOT, env=env, check=True,
+                               timeout=60, stdout=subprocess.DEVNULL)
+            with open(os.path.join(bin_dir, "ais.prev"), "rb") as f:
+                self.assertEqual(f.read(), b"old\n")
+
 
 if __name__ == "__main__":
     unittest.main()

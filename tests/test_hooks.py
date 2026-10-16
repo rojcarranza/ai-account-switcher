@@ -23,6 +23,8 @@ class BashHookTest(unittest.TestCase):
         for command in ('security find-generic-password -s "Claude Code-credentials" -w',
                         "security find-generic-password -ga x",
                         "security dump-keychain -d",
+                        'security find-generic-password -s "Claude Code-credentials" "-w"',
+                        "security find-generic-password -s x '-g'",
                         "CLAUDE_CONFIG_DIR=/tmp/x claude"):
             self.assertTrue(blocked(command), command)
 
