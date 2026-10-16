@@ -16,4 +16,4 @@ Plan: `docs/superpowers/plans/2026-10-16-ais-mvp.md` (approved 2026-10-16).
 - [ ] NFR-PERF measured on the Mac (verify: manual check M4)
 
 ## Log
-- 2026-10-16 planning: phases 0 to 6 approved; next Task 1 (walking skeleton); blockers: repo not yet attached, docs staged outside it.
+- 2026-10-16 planning: phases 0 to 6 approved; next Task 1 (walking skeleton); blockers: none (docs pushed to the repo).
