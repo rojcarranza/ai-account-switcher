@@ -33,11 +33,6 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   SwiftBar menu, never put it in an action.
 - macOS ships `/usr/bin/python3` 3.9 with the Command Line Tools; CI also
   runs 3.12.
-- Build, single test, run and install are verified by plan task 1 (the
-  walking skeleton); until then `src/` and `tests/` do not exist.
-- Not yet run on the Mac (skipped 2026-10-16): `python3 --version`,
-  `claude --version`, `claude auth status` for both accounts. Plan task 1
-  runs them first.
 
 ## When compacting
 - Keep: current task, modified files, test commands, open G-1 findings.
