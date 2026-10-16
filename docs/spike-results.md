@@ -3,7 +3,7 @@
 Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). The throwaway scripts named below were removed after the spike; they are in git history at commit `9d1e45f` (`git show 9d1e45f:spike/<name>`). Raw output stayed in git-ignored `spike/raw/`.
 Each "Expected" line was written before the command ran. Emails, org/account IDs and unrelated Keychain entries are redacted.
 
-Status (2026-10-16): G-1 (a) to (j), G-2 and G-3 all have a result except the (e) rerun as a true two-account test. (a) works, and the user kept the MVP scope; every other item passes.
+Status (2026-10-16): complete. G-1 (a) to (j), G-2 and G-3 all have a result. (a) works, and the user kept the MVP scope; every other item passes. Plan task 9 is skipped because (e) passed with two accounts.
 
 ## Expectations written before running
 - (b) credDir exists and is empty; Keychain has `Claude Code-credentials` and no `-<hash>` service for work yet; the sha256 rule is findable in the installed package.
@@ -99,12 +99,18 @@ Commands (user): `python3 -c "import json;d=json.load(open('$HOME/.claude.json')
 Gap accepted: no diff right before and right after a single login, with nothing else running; the identity fields above are the only ones a login is known to change. ais does not read or write this file, so the gap does not block the build.
 Failure rule: fails -> the build stops until a new ADR.
 
-## (e) Two accounts at once for 30 minutes — RERUN PENDING (first run likely used one account in both slots, see (b))
+## (e) Two accounts at once for 30 minutes — PASS (rerun with two accounts; plan task 9 not needed)
 Expected: no corruption; `oauthAccount`/`userID` may flip.
 Run (controller, 2026-10-16 21:26:53 to 21:56:53 local, `python3 spike/e_concurrent.py "" 30`, log `spike/raw/e.log`): Personal (default slot, `~/tmp/ais-spike-e1`) and Work (work slot, `~/tmp/ais-spike-e2`) each resumed their own session with `claude -p` every 2 minutes, at the same time, while the user kept using a Claude Desktop session. Every 30 s the script parsed `~/.claude.json` and every `~/.claude/**/*.json` (plugin cache skipped), retrying once after 0.5 s to tell a mid-write read from a broken file, and logged hashes of `oauthAccount` and `userID`.
 Output: `{"parse_fail": 0, "transient": 0, "identity_changes": 0, "personal_ok": 15, "work_ok": 14, "personal_err": 0, "work_err": 0}`. Identity hashes stayed `oauthAccount=7305fab3 userID=6a51e1df` for the whole run: requests do not rewrite them, only `/login` does (see (b)). Both transcripts (`7acd3b3a…` 207 lines, `972d01cc…` 195 lines) parse line by line with 0 bad lines.
 Limits: a `claude -p` simulation, not two interactive TUI sessions; the interactive case is covered by M2/M6 on the Mac. The default slot answered throughout while PERSONAL was at its limit until 23:20, so both slots most likely held WORK (see (b), "Which account a slot holds"). The run shows two concurrent `claude` processes do not damage the shared files, not two accounts at once.
-Result of the first run: Pass for concurrency, not for two accounts. Rerun with PERSONAL restored in the default slot: 23:21 to 23:51 local, result below.
+Result of the first run: Pass for concurrency, not for two accounts.
+
+Rerun (controller, 2026-10-16 23:21:00 to 23:51:00 local, `python3 spike/e_concurrent.py 23:21 30`, output `spike/raw/e-run2.out`), after the review fixes: the script now also reads each slot's Keychain `mdat` at the start and every 30 s, and counts usage-limit replies apart from errors.
+- Which account each slot held: just before the run (22:2x), a request on the default slot hit PERSONAL's limit and the work slot answered, so default = PERSONAL and work = WORK (see (b)). Start `mdat`: default `20261016202225Z` (the user's PERSONAL login), work `20261016181314Z` (the user's WORK login); no change during the run.
+- Output: `{"parse_fail": 0, "transient": 0, "identity_changes": 0, "slot_changes": 0, "personal_ok": 15, "work_ok": 15, "personal_limited": 0, "work_limited": 0, "personal_err": 0, "work_err": 0}`.
+- Each account kept one session for all 15 rounds (`ebba6a76…` 207 lines, `f2a22d64…` 209 lines); both transcripts parse line by line with 0 bad lines. The user kept using a Claude Desktop session on WORK during the run.
+Result: Pass. Two accounts running at the same time did not damage any shared file or swap the identity in `~/.claude.json`. Plan task 9 (global lock) is skipped.
 Failure rule: fails -> plan task 9 (global lock, one running `claude` at a time).
 
 ## (f) Version range, billing/account variables and keys — DONE
