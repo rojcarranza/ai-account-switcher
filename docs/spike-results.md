@@ -3,7 +3,7 @@
 Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). Scripts are in `spike/`; raw output only in `spike/raw/` (git-ignored, checked with `git check-ignore -v spike/raw/x`).
 Each "Expected" line was written before the command ran. Emails, org/account IDs and unrelated Keychain entries are redacted.
 
-Status: automatable parts only. Items (a), (c), (d), (e), (b) login, (h) SwiftBar prompt and G-3 are PENDING (user).
+Status: automatable parts only. Items (a), (c), (d), (e), (b) login, (h) SwiftBar prompt are PENDING (user). G-3 answered by the user.
 
 ## Expectations written before running
 - (b) credDir exists and is empty; Keychain has `Claude Code-credentials` and no `-<hash>` service for work yet; the sha256 rule is findable in the installed package.
@@ -48,12 +48,34 @@ Expected-but-unverified-until-login: work -> `Claude Code-credentials-f9fb4ac6`.
 
 Does `claude` honour the variable? `CLAUDE_SECURESTORAGE_CONFIG_DIR=/private/tmp/claude-501/ais-nonexistent-credir claude auth status` -> exit 2, `loggedIn: false`, `authMethod: none`, `configDirectory` still `/Users/roj/.claude`. So the variable selects the Keychain slot only, and `auth status` does not create the folder. With `~/.claude-accounts/work` the output has the same keys and `loggedIn` true, i.e. an item exists for that slot; `docs/progress.md` recorded that it showed the same account as default. Open for the user: confirm whether the work slot really holds the Work account (compare the redacted email of both calls by hand), or the Personal one.
 
+User login run (2026-10-16, emails and org IDs redacted as PERSONAL / WORK):
+- Before: `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude auth status` -> `loggedIn: true`, email PERSONAL.
+- User started `claude` on the work slot and ran `/login` as WORK (session `378a26d1-…`).
+- After: work slot `auth status` -> email WORK; default `claude auth status` (no variable) -> also email WORK.
+- Keychain timestamps (`security find-generic-password -s <service>`, `cdat`/`mdat`/`svce` lines only, no secret): `Claude Code-credentials` mdat `20261016162230Z`; `Claude Code-credentials-f9fb4ac6` cdat `20261016161904Z`, mdat `20261016181314Z`; time of check `20261016181504Z`. The login wrote only the work item; the default item was last changed about two hours before.
+- `~/.claude.json` `oauthAccount.emailAddress` now equals WORK (compared in a script, value not printed).
+- `ls -la ~/.claude-accounts/work` after login: empty. `claude` keeps the credential in the Keychain only and writes nothing into the credDir.
+
+Conclusion: the credentials are separate per slot (confirmed by the Keychain timestamps), so the variable works as ADR-0002 assumes. The email, org and subscription that `auth status` prints come from the shared `~/.claude.json` `oauthAccount`, which the last `/login` overwrites (inferred: it matches that file on every call). `auth status` cannot tell which account a slot holds, only whether it has a credential (`loggedIn`). Billing per slot: shown in (c). At the same moment the default slot hit its session limit and the work slot answered normally, so the two slots use different accounts.
+
 Still PENDING (user): does `claude` create the credDir itself on login (use a fresh `~/.claude-accounts/spike`: confirm absent, run `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude`, `/login`, then `ls -ld`), and that the resulting service equals `Claude Code-credentials-8cef0543`.
 
 Result: Pass (partial). Rule found, variable proven to select a different Keychain slot (logged out for a dir with no item). Full pass needs the login on `spike`.
 Failure rule: (b) fails -> build stops until a new ADR; if `claude` does not create the credDir -> ADR-0002 amended so ais creates only the empty folder (0700) after the FR-2.3 yes.
 
-## (c) Resume across accounts — PENDING (user)
+## (c) Resume across accounts — PASS (non-interactive `claude -p`; interactive run still worth a look)
+Run by the controller 2026-10-16 with `claude -p --output-format json` (raw JSON in `spike/raw/c*.json`, `k*.json`; scripts `spike/c_kill.py`):
+1. `~/tmp/ais-spike-c`, default slot: `claude -p "Reply with exactly: ALPHA-7"` -> exit 1, `is_error: true`, result `"You've hit your session limit · resets 11:20pm (Europe/Amsterdam)"`. Session `d17515a4-…` was still created (33 lines).
+2. Same folder, work slot: `claude -p --resume d17515a4-… "What exact text did I ask you to reply with…"` -> exit 0, same `session_id`, result `ALPHA-7`. One file, 33 -> 56 lines, no new `.jsonl`.
+3. From `~/tmp/ais-spike-c2`, work slot, `--resume` the same id -> exit 0, same id, result `BETA-3`. It appended to the original file in the first folder (56 -> 70). An empty project folder for `c2` appeared, with no `.jsonl`.
+4. Cut mid-tool-call: `spike/c_kill.py` (work slot) waits until the transcript has a `tool_use` with no `tool_result`, then SIGKILLs that one `claude` PID (returncode -9). Transcript `ae1fb065-…` ends on the open `tool_use` (31 lines). `--resume` on the work slot -> exit 0, same id, the model says it was interrupted while running `sleep 20 && echo DONE`; 31 -> 50 lines.
+   Note: in the first try Claude Code moved `sleep 90` into a background task and wrote a tool_result at once, so a long command does not always leave an open tool call.
+5. Target logged out (credDir with no Keychain item): `--resume` -> exit 1, `is_error: true`, result `"Not logged in · Please run /login"`. Target at its limit: as in step 1, exit 1 with the limit text. ais passes exit 1 through (FR-3.8). The interactive messages were not checked.
+Also proves the slots bill different accounts: at the same moment the default slot was at its limit and the work slot was not.
+Still to try once by hand: the same flow in interactive `claude` (Personal resumes after 23:20 local).
+Original plan text follows.
+
+### Plan text (kept)
 Expected: `claude --resume <id>` under Work continues a Personal session, appends to the same `<id>.jsonl`, also works from another folder; a SIGKILLed mid-tool-call transcript resumes; a target at its limit or logged out prints an error or login prompt.
 Commands (user): in `~/tmp/ais-spike`, start `claude` on Personal, ask for `sleep 120` via Bash, note the session id (`ls -t ~/.claude/projects/*/ | head`), `pkill -9 -f 'claude'` is NOT to be used broadly: kill that one PID from another terminal (`kill -9 <pid>`), then `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude --resume <id>`; `wc -l` the `.jsonl` before and after, and `ls` the project folder for new files. Repeat from `cd ~`. Then repeat with Work at its limit and with a logged-out dir (`.../spike` before login).
 Failure rule: fails -> the build stops until a new ADR picks another mechanism.
@@ -61,6 +83,7 @@ Failure rule: fails -> the build stops until a new ADR picks another mechanism.
 ## (d) `~/.claude.json` with two accounts — PENDING (user)
 Expected: `~/.claude.json` is shared (one file) with `oauthAccount` identity fields rewritten per login, OR per-account depending on the config dir.
 Commands (user): `python3 -c "import json;d=json.load(open('$HOME/.claude.json'));print(sorted(d), sorted(d.get('oauthAccount',{})))"` (keys only), before and after each `/login`; `cp ~/.claude.json spike/raw/claude.json.before` and `diff` key lists only.
+Partial evidence (2026-10-16, from (b)): one shared `~/.claude.json`; its `oauthAccount` is rewritten by each `/login` (now WORK after the work-slot login). Still to check: the before/after key diff above, and whether any other field changes.
 Failure rule: fails -> the build stops until a new ADR.
 
 ## (e) Two accounts at once for 30 minutes — PENDING (user)
@@ -95,7 +118,8 @@ Output (home paths kept):
 - Timings: `pgrep -x` 0.026 s; `pgrep -f` 0.026 s; `lsof -a -d cwd -p` 4 PIDs 0.056 s.
 - No terminal-started `claude` was running during the spike (all `-x` hits are the daemon and desktop-app sessions), so the common case, a terminal CLI, was not exercised. Note `pgrep -l` showed the daemon's name as `2.1.301` (the versioned binary name) while `-x claude` matched it, so the match depends on how the process was exec'd; the terminal CLI case must be checked.
 Findings for task design: `-x claude` also matches the daemon (cwd `/Users/roj`) and desktop-app sessions; ais must filter on argv (exclude `daemon`, `bg-*`) and decide whether desktop-app sessions count as "open".
-Result: Pass on mechanism and timing (under 60 ms); PENDING (user) the terminal case: open `claude` in two terminals, then rerun `zsh spike/g_detect.sh`.
+Terminal case (controller, 2026-10-16, `python3 spike/g_terminal.py`): a `claude -p` started from `~/tmp/ais-spike g ünï` (space and non-ASCII) was found by `pgrep -x claude` (5 PIDs, 0.048 s). `lsof -a -d cwd -p <pids> -Fn` returned `/Users/roj/tmp/ais-spike g ünï` for it (0.066 s), equal to `os.path.realpath` of the folder. Its argv starts with `claude`, unlike the daemon and Desktop-app sessions, so an argv filter can tell them apart.
+Result: Pass (mechanism, timing, terminal case, space and unicode folder). The NFD-from-Finder case is still for M5.
 Failure rule: fails -> FR-3.11 becomes a yes/no question and the menu shows no open badge.
 
 ## (h) `claude auth status` — PARTIAL
@@ -107,7 +131,8 @@ Flags: `--json` (default) and `--text`. Logged-out case (nonexistent credDir): e
 Latency: 0.12 s on every one of 6 runs (default and work).
 Network: `nettop` not run (needs sudo; skipped). Not checked whether it calls the network; 0.12 s suggests a local read.
 Keychain prompt from SwiftBar: PENDING (user); SwiftBar is not installed (see (i)).
-Result: Pass (format, latency, flags). Keychain-prompt part PENDING.
+Identity fields: `email`, `orgId`, `orgName` and `subscriptionType` are NOT per slot. After a WORK login on the work slot, both slots report WORK (see (b)). Only `loggedIn` / exit code reflect the slot. FR-4.1/4.2 must not show `auth status`'s email as the slot's account.
+Result: Pass (format, latency, flags), with the identity caveat above. Keychain-prompt part PENDING.
 Failure rule: fails -> the menu uses only the Keychain existence check.
 
 ## (i) SwiftBar — DONE (README only), plugin behaviour PENDING
@@ -133,6 +158,21 @@ Output: 77 records match one marker:
 Result: Pass (a marker exists). Marker for FR-3.14: `isApiErrorMessage == true and error == "rate_limit"`, text begins "You've hit your session limit".
 Failure rule: no marker -> FR-3.14's end-to-end time is measured only by manual check M2 (not triggered).
 
+## Coexistence with Claude Switcher (installed and running)
+Commands: `pgrep -lf "Claude Switcher"`; read-only scripts over `~/.config/claude-switcher/config.json` (profile id, label, credDir, userDataDir only) and `activity-index.json` (top-level keys only).
+Found (2026-10-16):
+- `/Applications/Claude Switcher.app` running (`claude-switcher`). Profiles: `default` / Personal (credDir none) and `work` / Work (credDir `/Users/roj/.claude-accounts/work`, Desktop data dir `~/Library/Application Support/Claude-work`). `config.json` was last written at 18:10 local time.
+- Same Keychain slot: ais's default work credDir is the same string, so both tools use `Claude Code-credentials-f9fb4ac6`. That is intended (ADR-0002, FR-1.2). A login or logout in either tool applies to both.
+- The `f9fb4ac6` item was created at 16:19Z, before any ais work, most likely by Claude Switcher. The "before" `auth status` showing PERSONAL says nothing about that slot, because the email comes from the shared `~/.claude.json` (see (b), (h)).
+- Any `/login` from either tool or the Desktop app rewrites `~/.claude.json` `oauthAccount`, so the displayed identity follows the last login.
+- `activity-index.json` holds `entries`/`owners`/`tiers` (Claude Switcher's own session index). ais never reads it (ADR-0002).
+Risks for later tasks:
+- Task 8 / FR-3.11: Desktop-app sessions (including the Claude-work profile) run an embedded `claude` that `pgrep -x claude` matches, with a cwd in project folders (see (g)). ais would report the folder as open (exit 75) while only the Desktop app has it open. Decide whether those count as open.
+- Task 7: Claude Switcher's Desktop handoff copies a session to a new ID (ADR-0006). Copies sit in `~/.claude/projects/` and could become the "newest session" for a folder.
+- Not checked: whether Claude Switcher ever rewrites the default `Claude Code-credentials` item (mdat 16:22Z has no known cause).
+
+Desktop app (outside the MVP, brief non-goal 1): Claude Switcher runs a second Desktop instance as `/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/roj/Library/Application Support/Claude-work` next to the plain default instance (seen with `ps`). The user asked on 2026-10-16 for ais to do the same; that needs a scope change (brief, requirements, ADR) before any plan task.
+
 ## G-2 Terms — DONE
 Sources: https://www.anthropic.com/legal/consumer-terms (effective October 8, 2025 as returned) and https://www.anthropic.com/legal/aup (effective date returned as November 12, 2026; reported as read). Fetched 2026-10-16.
 Findings:
@@ -147,7 +187,8 @@ Failure rule: terms forbid it -> the build stops. Not triggered on this reading.
 Draft Review-log line (not yet added to `docs/requirements.md`):
 `2026-10-16 G-2: Consumer Terms (https://www.anthropic.com/legal/consumer-terms, effective 2025-10-08) do not restrict holding or switching between two own accounts; they bar sharing an account with others and "bypassing any of our systems or protective measures" (limit evasion not named). Usage Policy (https://www.anthropic.com/legal/aup) bars extra accounts to evade detection/bans only. Build may proceed; user to confirm.`
 
-## G-3 Work account plan — PENDING (user)
+## G-3 Work account plan
 Expected: the Work plan is Team or Enterprise (from `subscriptionType`), which triggers the terms and employer-policy check.
-Commands (user): `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude auth status --json` after a Work login, read only `subscriptionType`. If Team or Enterprise: read the commercial terms and the employer data policy; record whether moving transcripts between accounts is allowed.
+Result (user, 2026-10-16): both accounts are the user's own personal Pro subscriptions on separate personal emails (redacted). "Work" is only a label; no employer, Team or Enterprise plan is involved, so the commercial-terms and employer-policy check does not apply. Consumer Terms (G-2) cover both.
+Pass: the build may proceed.
 Failure rule: Team/Enterprise and either forbids moving data between accounts -> the build stops.
