@@ -14,6 +14,6 @@ build:
 
 install: build
 	mkdir -p $(HOME)/.local/bin
-	if [ -e $(HOME)/.local/bin/ais ]; then mv -f $(HOME)/.local/bin/ais $(HOME)/.local/bin/ais.prev; fi
+	if [ -e $(HOME)/.local/bin/ais ] && ! cmp -s "$(DIST)/ais" $(HOME)/.local/bin/ais; then mv -f $(HOME)/.local/bin/ais $(HOME)/.local/bin/ais.prev; fi
 	cp "$(DIST)/ais" $(HOME)/.local/bin/ais
 	chmod 755 $(HOME)/.local/bin/ais

@@ -2,7 +2,7 @@
 Status: Approved 2026-10-16
 
 Inputs: `docs/brief.md`, the approved design spec and `docs/requirements.md`
-v0.4. Decisions live in `docs/adr/`. ADRs 0002, 0006 and 0007 depend on
+v0.4. Decisions live in `docs/adr/`. ADRs 0002, 0006, 0007 and 0008 depend on
 the G-1 spike; if it disproves them, a superseding ADR comes first.
 
 ## System context (C4 L1)
