@@ -3,7 +3,7 @@
 Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). Scripts are in `spike/`; raw output only in `spike/raw/` (git-ignored, checked with `git check-ignore -v spike/raw/x`).
 Each "Expected" line was written before the command ran. Emails, org/account IDs and unrelated Keychain entries are redacted.
 
-Status: automatable parts only. Items (a), (c), (d), (e), (b) login, (h) SwiftBar prompt are PENDING (user). G-3 answered by the user.
+Status (2026-10-16): complete. G-1 (a) to (j), G-2 and G-3 all have a result. (a) works, and the user kept the MVP scope; every other item passes. Plan task 9 is skipped because (e) passed.
 
 ## Expectations written before running
 - (b) credDir exists and is empty; Keychain has `Claude Code-credentials` and no `-<hash>` service for work yet; the sha256 rule is findable in the installed package.
@@ -96,9 +96,12 @@ Commands (user): `python3 -c "import json;d=json.load(open('$HOME/.claude.json')
 Partial evidence (2026-10-16, from (b)): one shared `~/.claude.json`; its `oauthAccount` is rewritten by each `/login` (now WORK after the work-slot login). Still to check: the before/after key diff above, and whether any other field changes.
 Failure rule: fails -> the build stops until a new ADR.
 
-## (e) Two accounts at once for 30 minutes — PENDING (user)
+## (e) Two accounts at once for 30 minutes — PASS (plan task 9 not needed)
 Expected: no corruption; `oauthAccount`/`userID` may flip.
-Commands (user): two terminals, one per account, different folders; every minute `python3 -c` to print whether `~/.claude.json` and every `~/.claude/**/*.json` parse, and a hash of `oauthAccount` and `userID` (not values). Record all changes.
+Run (controller, 2026-10-16 21:26:53 to 21:56:53 local, `python3 spike/e_concurrent.py "" 30`, log `spike/raw/e.log`): Personal (default slot, `~/tmp/ais-spike-e1`) and Work (work slot, `~/tmp/ais-spike-e2`) each resumed their own session with `claude -p` every 2 minutes, at the same time, while the user kept using a Claude Desktop session. Every 30 s the script parsed `~/.claude.json` and every `~/.claude/**/*.json` (plugin cache skipped), retrying once after 0.5 s to tell a mid-write read from a broken file, and logged hashes of `oauthAccount` and `userID`.
+Output: `{"parse_fail": 0, "transient": 0, "identity_changes": 0, "personal_ok": 15, "work_ok": 14, "personal_err": 0, "work_err": 0}`. Identity hashes stayed `oauthAccount=7305fab3 userID=6a51e1df` for the whole run: requests do not rewrite them, only `/login` does (see (b)). Both transcripts (`7acd3b3a…` 207 lines, `972d01cc…` 195 lines) parse line by line with 0 bad lines.
+Limits: a `claude -p` simulation, not two interactive TUI sessions; the interactive case is covered by M2/M6 on the Mac.
+Result: Pass. Plan task 9 (global lock) is skipped.
 Failure rule: fails -> plan task 9 (global lock, one running `claude` at a time).
 
 ## (f) Version range, billing/account variables and keys — DONE
