@@ -17,3 +17,4 @@ Plan: `docs/superpowers/plans/2026-10-16-ais-mvp.md` (approved 2026-10-16).
 
 ## Log
 - 2026-10-16 planning: phases 0 to 6 approved; next Task 1 (walking skeleton); blockers: none (docs pushed to the repo).
+- 2026-10-16 task 1 Mac checks (walking skeleton built, tests green): `python3` on PATH is 3.14.6 (Homebrew), system `/usr/bin/python3` is 3.9.6; `claude` 2.1.301; default account logged in (claude.ai, pro; email and org ID redacted). OPEN INPUT for task 2 G-1(b): `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude auth status` returned the same account and `configDirectory /Users/roj/.claude` as the default call. Possible causes, not investigated: `~/.claude-accounts/work` is absent or not logged in, or the variable is ignored.
