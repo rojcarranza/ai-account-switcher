@@ -67,7 +67,7 @@ credDir creation (user login run for (a), 2026-10-16): `~/.claude-accounts/spike
 
 Previously PENDING (user), now answered above: does `claude` create the credDir itself on login (use a fresh `~/.claude-accounts/spike`: confirm absent, run `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/spike" claude`, `/login`, then `ls -ld`), and that the resulting service equals `Claude Code-credentials-8cef0543`.
 
-Result: Pass (partial). Rule found, variable proven to select a different Keychain slot (logged out for a dir with no item). Full pass needs the login on `spike`.
+Result (first pass): rule found, variable proven to select a different Keychain slot. Superseded by the full Pass above after the `spike` login.
 Failure rule: (b) fails -> build stops until a new ADR; if `claude` does not create the credDir -> ADR-0002 amended so ais creates only the empty folder (0700) after the FR-2.3 yes.
 
 ## (c) Resume across accounts — PASS (non-interactive `claude -p`; interactive run still worth a look)
@@ -132,7 +132,7 @@ Terminal case (controller, 2026-10-16, `python3 spike/g_terminal.py`): a `claude
 Result: Pass (mechanism, timing, terminal case, space and unicode folder). The NFD-from-Finder case is still for M5.
 Failure rule: fails -> FR-3.11 becomes a yes/no question and the menu shows no open badge.
 
-## (h) `claude auth status` — PARTIAL
+## (h) `claude auth status` — PASS (identity caveat)
 Command: `python3 spike/h_status.py` (3 runs each, default and with `CLAUDE_SECURESTORAGE_CONFIG_DIR=$HOME/.claude-accounts/work`); `claude auth status --help`.
 Expected: short block; under 2 s; `--json` exists.
 Output format (keys only, values redacted): JSON object, exit 0:
@@ -140,12 +140,12 @@ Output format (keys only, values redacted): JSON object, exit 0:
 Flags: `--json` (default) and `--text`. Logged-out case (nonexistent credDir): exit 2, keys include `loggedIn: false`, `authMethod: none`, `apiProvider`, `analyticsDisabled`, `projectsDirectory`, `configDirectory`; no email.
 Latency: 0.12 s on every one of 6 runs (default and work).
 Network: `nettop` not run (needs sudo; skipped). Not checked whether it calls the network; 0.12 s suggests a local read.
-Keychain prompt from SwiftBar: PENDING (user); SwiftBar is not installed (see (i)).
+Keychain prompt from SwiftBar (2026-10-16, SwiftBar 2.1.1, probe `spike/swiftbar_probe.sh` installed as `~/SwiftBarPlugins/ais-probe.1m.sh`): `~/.local/bin/claude auth status` with stdin from `/dev/null` and no TTY exited 0 in 0.13 to 0.14 s on every refresh, and no Keychain dialog was reported. A blocking prompt would have stopped the command, so no prompt (inferred from the timing and exit code).
 Identity fields: `email`, `orgId`, `orgName` and `subscriptionType` are NOT per slot. After a WORK login on the work slot, both slots report WORK (see (b)). Only `loggedIn` / exit code reflect the slot. FR-4.1/4.2 must not show `auth status`'s email as the slot's account.
-Result: Pass (format, latency, flags), with the identity caveat above. Keychain-prompt part PENDING.
+Result: Pass (format, latency, flags, no prompt from SwiftBar), with the identity caveat above (now in FR-4.1 and FR-4.2).
 Failure rule: fails -> the menu uses only the Keychain existence check.
 
-## (i) SwiftBar — DONE (README only), plugin behaviour PENDING
+## (i) SwiftBar — PASS
 Command: `defaults read com.ameba.SwiftBar PluginDirectory`; `ls -d /Applications/SwiftBar.app`; WebFetch of https://raw.githubusercontent.com/swiftbar/SwiftBar/main/README.md.
 Expected: not installed; README documents the names and parameters.
 Output: `Domain 'com.ameba.SwiftBar' not found.` and no `/Applications/SwiftBar.app` -> SwiftBar not installed.
@@ -155,7 +155,13 @@ From the README:
 - Menu parameters: `bash=` absolute path of the script to run; `paramN=` arguments (`param0=`, `param1=`, ...); `terminal=` `false` runs in the background instead of opening Terminal (so `terminal=true` opens Terminal); `refresh=true` re-runs the plugin after click.
 - `disabled=`: not covered by the README text returned. PENDING: check the SwiftBar wiki or the installed app.
 - Plugin PATH: not stated. README lists env vars set for plugins (`SWIFTBAR_PLUGIN_PATH`, `SWIFTBAR_PLUGIN_DATA_PATH`, `OS_APPEARANCE`) and `<swiftbar.environment>[var=default]</swiftbar.environment>` for custom ones. PENDING (user): after installing SwiftBar, make a plugin that prints `echo $PATH` and record it; ais should use an absolute path to `~/.local/bin/ais`.
-Result: PENDING for live checks; docs-based answers recorded.
+Live checks (2026-10-16, SwiftBar 2.1.1 installed by the user, plugin folder `~/SwiftBarPlugins`; `defaults read com.ameba.SwiftBar PluginDirectory` -> `/Users/roj/SwiftBarPlugins`; probe `spike/swiftbar_probe.sh`):
+- Plugin PATH: the user's full login-shell PATH, including `/Users/roj/.local/bin` and `/opt/homebrew/bin`; `command -v claude` -> `/Users/roj/.local/bin/claude`. No TTY (`tty` -> "not a tty").
+- Refresh: `ais-probe.1m.sh` ran every 60 s (log entries 18:43:51Z and 18:44:51Z).
+- `disabled=true`: the item shows greyed out and cannot be clicked (user screenshot).
+- `bash=/bin/sh param1=-c param2=… terminal=false`: clicking it ran the command in the background (one `action-ran` line in the log), no Terminal window.
+- The probe was removed from `~/SwiftBarPlugins` afterwards.
+Result: Pass. ais still writes an explicit PATH into its plugin (FR-4.7), because another user's SwiftBar may not inherit the login shell.
 Failure rule: (i) fails -> the user decides whether the menu tasks stay in the MVP.
 
 ## (j) Usage-limit text in transcripts — DONE
