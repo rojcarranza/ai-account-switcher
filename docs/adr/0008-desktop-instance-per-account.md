@@ -18,7 +18,8 @@ by side (brief MVP bullet 1 and non-goal 1, changed 2026-10-16; design
 
 ## Decision
 - `ais desktop <account>`: the default account opens the normal Claude app
-  (`open -a`, no data-folder flag, unchanged sign-in and history); every
+  (`open -n -a`, no data-folder flag, unchanged sign-in and history; `-n`
+  because plain `open -a` only fronts a running Work instance); every
   other account opens its own instance with
   `--user-data-dir=~/Library/Application Support/Claude-ais-<account>`,
   derived from the account name, not stored in `config.json`.

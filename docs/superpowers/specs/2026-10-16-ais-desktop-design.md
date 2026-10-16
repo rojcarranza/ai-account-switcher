@@ -129,8 +129,9 @@ Order matters; each step says how to check it.
    `config.json` `default` names, whose credDir is null (FR-1.2, ADR-0002).
    Only that account launches without `--user-data-dir`. Every other account,
    including one renamed later, gets `Claude-ais-<account>`.
-2. Default launch: `open -a <app>` (no `-n`), the same as opening it from the
-   Dock. Detection for the default: a `…/Contents/MacOS/Claude` process whose
+2. Default launch: `open -n -a <app>` with no `--user-data-dir` (code review,
+   PR #5: without `-n`, macOS only fronts an already-running Work instance,
+   so Personal would never open). Detection for the default: a `…/Contents/MacOS/Claude` process whose
    args have no `--user-data-dir`. `Claude Helper…` processes never match.
    Tests use a `ps` fixture with helpers, Claude Switcher's instance and
    ais instances mixed.
@@ -141,8 +142,8 @@ Order matters; each step says how to check it.
    launch command or the "already open" message. Never launches.
 5. App location: use the first of `/Applications/Claude.app` and
    `~/Applications/Claude.app` that exists, and launch by that path. Neither
-   exists: exit 69, `Claude Desktop not found in /Applications or
-   ~/Applications`.
+   exists: exit 69, `Claude Desktop not found in <roots searched, joined by
+   " or ">`.
 6. Menu: one `Open <label> Desktop` item per account, always shown, action
    `bash=<ais path> param1=desktop param2=<account> terminal=false`. Only the
    validated account name goes into the action (FR-4.12 holds). The command
