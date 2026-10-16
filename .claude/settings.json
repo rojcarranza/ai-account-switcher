@@ -30,6 +30,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys; sys.exit(0 if json.load(sys.stdin).get('stop_hook_active') else 1)\" || python3 -m unittest discover -s tests -t . || exit 2"
+          }
+        ]
+      }
     ]
   }
 }
