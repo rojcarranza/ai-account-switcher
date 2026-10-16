@@ -2,7 +2,7 @@
 Status: Approved 2026-10-16
 
 Inputs: `docs/brief.md`, the approved design spec and `docs/requirements.md`
-v0.4. Decisions live in `docs/adr/`. ADRs 0002, 0006 and 0007 depend on
+v0.4. Decisions live in `docs/adr/`. ADRs 0002, 0006, 0007 and 0008 depend on
 the G-1 spike; if it disproves them, a superseding ADR comes first.
 
 ## System context (C4 L1)
@@ -13,15 +13,17 @@ flowchart LR
   ais[ais CLI]
   bar[SwiftBar plugin ais.1m.sh<br/>optional]
   claude[Claude Code CLI]
-  cs[Claude Switcher menu bar app<br/>optional, independent]
+  cs[Claude Switcher menu bar app<br/>being replaced; removed by the user via the guide]
+  desk[Claude Desktop<br/>one instance per account, ADR-0008]
   kc[(macOS Keychain)]
   shared[(~/.claude shared brain)]
   anth[Anthropic API<br/>personal / work account]
   user -->|ais switch, run, status| ais
   user -->|clicks menu| bar
   bar -->|exec ais menu render| ais
-  user -.->|desktop accounts, usage| cs
+  user -.->|today: Desktop per account, until removed| cs
   ais -->|starts with per-account env| claude
+  ais -->|open, one per data folder| desk
   ais -->|existence check only| kc
   ais -->|reads transcripts| shared
   claude -->|reads credential| kc
@@ -35,7 +37,7 @@ flowchart LR
 flowchart TB
   subgraph ais [ais, one Python zipapp]
     cli[cli.py<br/>argument parsing, exit codes]
-    core[core.py<br/>switch, run, status, setup, uninstall]
+    core[core.py<br/>switch, run, status, setup, desktop, uninstall]
     menu[menu.py<br/>render SwiftBar output, sanitize]
     acct[accounts.py<br/>account list from ais config]
     guards[guards.py<br/>generic scrub, risk check, path checks<br/>driven by the provider]
@@ -54,7 +56,8 @@ flowchart TB
   run -->|subprocess| claudebin[claude]
   prov -->|subprocess| claudebin
   prov -->|subprocess, no -w or -g| security[security]
-  prov -->|subprocess| ps[pgrep, lsof]
+  prov -->|subprocess| ps[pgrep, lsof, ps]
+  core -->|subprocess, argv from the provider| open[open -a Claude]
   prov -->|read only| projects[~/.claude/projects]
   store --> aisdir[(~/.config/ais/)]
 ```
@@ -73,19 +76,21 @@ flowchart TB
 | Sessions, memory, settings | `~/.claude/`, `~/.claude.json` | Claude Code | ais only reads (realpath-checked) |
 | Credential folders | `~/.claude-accounts/<id>` | Claude Code (Keychain slot key) | ais never writes inside |
 | Credentials | macOS Keychain | Claude Code | ais only runs `claude auth status` or checks the item exists |
+| Desktop data folders | `~/Library/Application Support/Claude-ais-<account>` (default account: Claude.app's own folder) | Claude Desktop | ais only passes the path with `--user-data-dir`; never reads, writes or deletes (ADR-0008) |
 
 ## Interfaces (link openapi.yaml / *.proto)
 
 No network API. The interfaces are:
 
-- **CLI:** `ais setup | login | run | switch | status | menu install |
+- **CLI:** `ais setup | login | run | switch | status | desktop | menu install |
   menu uninstall | menu render | uninstall`, flags and exit codes as in
   `docs/requirements.md` (sysexits 64 to 78; otherwise `claude`'s code).
 - **Provider interface** (`providers/base.py`, a `typing.Protocol`):
   `env_for`, `resume_command`, `start_command`, `login_command`,
   `env_for`, `billing_risks`, `newest_session`, `recent_sessions`,
   `find_session`, `open_session_pid`, `has_credential`, `snapshot_paths`,
-  `self_check`, `limit_time` (see FR-5.1). Registered in a static table
+  `self_check`, `limit_time`, and `desktop_data_dir`,
+  `desktop_launch_command`, `desktop_running_pid` (see FR-5.1, FR-6). Registered in a static table
   (FR-5.2).
 - **`ais status --json`:** schema in FR-4.6.
 - **SwiftBar plugin:** `ais.1m.sh` sets `PATH` and runs
@@ -124,7 +129,7 @@ No network API. The interfaces are:
 - **Build:** `python3 -m zipapp` produces `dist/ais`; `make install`
   copies it to `~/.local/bin/ais`.
 - **CI:** GitHub Actions: Linux on Python 3.9 and 3.12 with fake `claude`,
-  `security`, `pgrep` and `lsof`; one `macos-latest` job on Python 3.9 for
+  `security`, `pgrep`, `lsof`, `ps` and `open`; one `macos-latest` job on Python 3.9 for
   path normalization (NFD), `lsof`/`pgrep` parsing and menu rendering.
 - **Rollback:** `make install` keeps the previous binary as
   `~/.local/bin/ais.prev`; `ais uninstall` removes ais's config and keeps
