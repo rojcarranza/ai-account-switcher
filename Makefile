@@ -1,6 +1,6 @@
 .PHONY: test lint build install
 
-DIST ?= dist
+DIST = dist
 
 test:
 	python3 -m unittest discover -s tests -t .
