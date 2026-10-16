@@ -1,6 +1,6 @@
 # Spike results (G-1, G-2, G-3)
 
-Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). Scripts are in `spike/`; raw output only in `spike/raw/` (git-ignored, checked with `git check-ignore -v spike/raw/x`).
+Date: 2026-10-16. Claude Code 2.1.301, macOS (Darwin 27). The throwaway scripts named below were removed after the spike; they are in git history at commit `9d1e45f` (`git show 9d1e45f:spike/<name>`). Raw output stayed in git-ignored `spike/raw/`.
 Each "Expected" line was written before the command ran. Emails, org/account IDs and unrelated Keychain entries are redacted.
 
 Status (2026-10-16): G-1 (a) to (j), G-2 and G-3 all have a result except the (e) rerun as a true two-account test. (a) works, and the user kept the MVP scope; every other item passes.
