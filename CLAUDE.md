@@ -21,10 +21,21 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
 - Exit codes: ais's own are 64 to 78 (see requirements); after `claude`
   runs, pass its exit code through.
 
+## Workflow
+- Every piece of work is tracked by a GitHub issue (user story) in
+  rojcarranza/ai-account-switcher. Find it, or create it first.
+- Every change lands through a pull request that links its issue
+  (`Closes #N`, or `Refs #N` when the PR does only part of it). No direct
+  pushes to main.
+- After opening a PR, run `/code-review` on it, fix every finding, and run
+  it again until it is clean before asking to merge. If fixing a finding
+  would mean editing a test to make it pass, ask first.
+
 ## Gotchas
 - Tests never touch the real HOME, Keychain or ~/.claude: set `HOME` to a
-  temp dir and put fake `claude`, `security`, `pgrep` and `lsof` scripts
-  first on `PATH`.
+  temp dir and put fake `claude`, `security`, `pgrep`, `lsof`, `ps` and
+  `open` scripts first on `PATH`; inject app roots, never the host's
+  `/Applications`.
 - `CLAUDE_SECURESTORAGE_CONFIG_DIR` is omitted entirely for the default
   account, never "". A stored credDir is passed exactly as stored: a
   different spelling is a different Keychain slot.
