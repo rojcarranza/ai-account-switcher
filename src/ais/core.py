@@ -136,6 +136,7 @@ class Context:
     cwd: Path
     settings_roots: Optional[Mapping[str, Path]] = None  # None = the provider's default
     started: float = field(default_factory=time.monotonic)  # ais start, for the FR-3.14 tool time
+    app_roots: Optional[List[Path]] = None  # None = /Applications and ~/Applications
 
 
 def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = False) -> int:
@@ -155,6 +156,31 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
     except AisError as e:  # claude already ran: its exit code wins over a failed log write
         guards.print_warnings([e.message])
     return rc
+
+
+EXIT_DESKTOP = 69
+OPEN_TIMEOUT = 10
+
+
+def cmd_desktop(ctx: Context, account: str, dry_run: bool) -> int:
+    """FR-6.1 to FR-6.4: open a new Desktop instance for the account. Writes no ais state and no log line."""
+    acc = ctx.config.get(account)
+    provider = ctx.provider_for(acc)
+    home = ctx.store.home
+    data_dir = provider.desktop_data_dir(acc, home)
+    pid = provider.desktop_running_pid(data_dir)  # read-only, so --dry-run runs it too
+    if pid is not None:
+        print("%s Desktop is already open (PID %d)" % (acc.label, pid))
+        return 0
+    roots = ctx.app_roots if ctx.app_roots is not None else [Path("/Applications"), home / "Applications"]
+    cmd = provider.desktop_launch_command(data_dir, roots)
+    if dry_run:
+        print("Would run: " + " ".join(shlex.quote(a) for a in cmd))
+        return 0
+    rc, _, warn, err = procs.run(cmd, OPEN_TIMEOUT, stderr=True)
+    if rc != 0:
+        raise AisError(EXIT_DESKTOP, warn or err.strip() or "%s exited %s" % (cmd[0], rc))
+    return 0
 
 
 def _record_last_used(store: Store, session: Session, account: Optional[str], restore: Any = None) -> Any:
@@ -685,11 +711,16 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         hint = ctx.provider_for(a).credential_removal_hint(a)
         if hint:
             steps.append("Keychain item of %s: %s" % (a.label, hint))
+        steps.append("%s: your %s Desktop data folder (kept; it holds the Desktop sign-in)"
+                     % (ctx.provider_for(a).desktop_data_dir(a, home), a.label))
     if not ctx.config.accounts:  # the no-config placeholder: generic wording
         steps.append(str(home / provider.cred_dir_root / "<account>") + ": each extra account's folder (kept)")
         hint = provider.credential_removal_hint(None)
         if hint:
             steps.append("Keychain: " + hint)
+        placeholder = Account("<account>", "<account>", DEFAULT_PROVIDER, "<credDir>")  # non-default
+        steps.append("%s: each extra account's Desktop data folder (kept; it holds the Desktop sign-in)"
+                     % provider.desktop_data_dir(placeholder, home))
     steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
                  "and nothing else in ~/.local/bin needs it (claude itself lives there)")
 

@@ -1,0 +1,7 @@
+  101 /Applications/Claude.app/Contents/MacOS/Claude
+  102 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/u/Library/Application Support/Claude-ais-work --lang=en
+  201 /Applications/Claude Switcher.app/Contents/MacOS/Claude --user-data-dir=/Users/u/Library/Application Support/Claude-work
+  301 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/u/Library/Application Support/Claude-ais-work --foo
+  302 /Applications/Claude.app/Contents/Frameworks/Claude Helper (GPU).app/Contents/MacOS/Claude Helper (GPU) --user-data-dir=/Users/u/Library/Application Support/Claude-ais-work
+  401 codesign -dv /Applications/Claude.app/Contents/MacOS/Claude
+  402 /usr/bin/lldb /Applications/Claude.app/Contents/MacOS/Claude

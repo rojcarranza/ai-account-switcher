@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fake open: logs its argv to $FAKE_CALL_LOG. FAKE_OPEN_FORBID=1 marks a call that must not happen
+# (FORBIDDEN in the log, exit 99); else prints $FAKE_OPEN_ERR to stderr and exits $FAKE_OPEN_RC.
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "open $*" >> "$FAKE_CALL_LOG"
+if [ -n "${FAKE_OPEN_FORBID:-}" ]; then
+    [ -n "${FAKE_CALL_LOG:-}" ] && echo "FORBIDDEN" >> "$FAKE_CALL_LOG"
+    echo "fake open: must not be called" >&2
+    exit 99
+fi
+[ -n "${FAKE_OPEN_SLEEP:-}" ] && sleep "$FAKE_OPEN_SLEEP"
+[ -n "${FAKE_OPEN_ERR:-}" ] && printf '%s\n' "$FAKE_OPEN_ERR" >&2
+exit "${FAKE_OPEN_RC:-0}"

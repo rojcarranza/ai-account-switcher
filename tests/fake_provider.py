@@ -32,3 +32,12 @@ class FakeProvider:
         if account is None:
             return "fake remove <account>"
         return None if account.is_default else "fake remove %s" % account.name
+
+    def desktop_data_dir(self, account, home):
+        return None if account.is_default else home / "fake-desktop" / account.name
+
+    def desktop_launch_command(self, data_dir, app_roots) -> List[str]:
+        return ["fake", "desktop"] + ([] if data_dir is None else [str(data_dir)])
+
+    def desktop_running_pid(self, data_dir) -> Optional[int]:
+        return None

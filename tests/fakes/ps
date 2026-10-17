@@ -1,6 +1,7 @@
 #!/bin/sh
-# Fake ps: prints $FAKE_PS_OUT (lines "<pid> <args>").
+# Fake ps: prints $FAKE_PS_OUT (lines "<pid> <args>") or, when set, the file $FAKE_PS_FILE.
 [ -n "${FAKE_CALL_LOG:-}" ] && echo "ps $*" >> "$FAKE_CALL_LOG"
 [ -n "${FAKE_PROCS_PIDFILE:-}" ] && FAKE_PS_OUT="$(cat "$FAKE_PROCS_PIDFILE") claude --resume"
-printf '%s\n' "${FAKE_PS_OUT:-}"
+[ -n "${FAKE_PS_ERR:-}" ] && printf '%s\n' "$FAKE_PS_ERR" >&2
+if [ -n "${FAKE_PS_FILE:-}" ]; then cat "$FAKE_PS_FILE"; else printf '%s\n' "${FAKE_PS_OUT:-}"; fi
 exit "${FAKE_PS_RC:-0}"

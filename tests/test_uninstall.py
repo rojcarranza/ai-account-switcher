@@ -284,3 +284,15 @@ class UninstallTest(TempHomeCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("<account>", out)
         self.assertNotIn("Keychain", out)
+
+    def test_uninstall_lists_desktop_folders(self):
+        folder = self.home / "Library" / "Application Support" / "Claude-ais-work"
+        code, out, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("%s: your Work Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)
+        self.assertEqual(out.count("Desktop data folder"), 1)  # the default account has none
+        (self.ais_dir / "config.json").unlink()
+        code, out, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn(str(self.home / "Library" / "Application Support" / "Claude-ais-<account>")
+                      + ": each extra account's Desktop data folder (kept; it holds the Desktop sign-in)", out)
