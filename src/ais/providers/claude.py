@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ais import procs
 from ais.accounts import Account
+from ais.errors import AisError
 from ais.providers.base import Session
 
 PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
@@ -54,6 +55,12 @@ SETTINGS_FILES = (
     ("managed", "managed-settings.json"),
 )
 RISKY_FLAGS = ("--settings", "--bare")
+DESKTOP_APP = "Claude.app"
+DESKTOP_SUPPORT = ("Library", "Application Support")
+DESKTOP_PREFIX = "Claude-ais-"
+DESKTOP_PS_TIMEOUT = 5
+_DESKTOP_MAIN = re.compile(r"/Contents/MacOS/Claude(?: -|$)")  # never "Claude Helper (…)"
+_USER_DATA_DIR = "--user-data-dir="
 
 
 def default_settings_roots() -> Dict[str, Path]:
@@ -213,6 +220,21 @@ def _same_folder(cwd: str, target_real: str) -> bool:
     return unicodedata.normalize("NFC", cwd) == target_real or _nfc_real(cwd) == target_real
 
 
+def _desktop_pid(ps_output: str, data_dir: Optional[Path]) -> Optional[int]:
+    """PID of the main Desktop process whose --user-data-dir is data_dir (None = no such flag)."""
+    for raw in ps_output.splitlines():
+        pid, _, args = raw.strip().partition(" ")
+        m = _DESKTOP_MAIN.search(args)
+        if not pid.isdigit() or m is None:
+            continue
+        rest = args[m.start():]
+        _, flag, tail = rest.partition(_USER_DATA_DIR)
+        folder = tail.split(" --", 1)[0] if flag else None
+        if folder == (None if data_dir is None else str(data_dir)):
+            return int(pid)
+    return None
+
+
 class ClaudeProvider:
     install_hint = "install Claude Code: https://code.claude.com/docs/en/setup"
     resume_flags = ("--resume", "--continue", "--from-pr", "--fork-session")
@@ -333,6 +355,28 @@ class ClaudeProvider:
         if account.is_default:
             return None
         return "security delete-generic-password -s '%s'" % keychain_service(account.cred_dir)
+
+    def desktop_data_dir(self, account: Account, home: Path) -> Optional[Path]:
+        if account.is_default:
+            return None
+        return home.joinpath(*DESKTOP_SUPPORT) / (DESKTOP_PREFIX + account.name)
+
+    def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
+        for root in app_roots:
+            try:  # os.lstat: an unreadable root just means "not there"
+                os.lstat(str(root / DESKTOP_APP))
+            except OSError:
+                continue
+            cmd = ["open", "-n", "-a", str(root / DESKTOP_APP)]  # -n: else macOS only fronts a running instance
+            return cmd if data_dir is None else cmd + ["--args", _USER_DATA_DIR + str(data_dir)]
+        raise AisError(69, "Claude Desktop not found in " + " or ".join(str(r) for r in app_roots))
+
+    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+        rc, out, warn, err = procs.run(["ps", "-ww", "-o", "pid=,args="], DESKTOP_PS_TIMEOUT, stderr=True)
+        if warn or rc != 0:
+            raise AisError(69, "cannot check for a running Claude Desktop: "
+                           + (warn or err.strip() or "ps exited %s" % rc))
+        return _desktop_pid(out, data_dir)
 
     def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""

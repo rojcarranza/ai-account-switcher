@@ -34,6 +34,9 @@ def _parser() -> argparse.ArgumentParser:
     switch.add_argument("--session")
     switch.add_argument("--dry-run", action="store_true")
     switch.add_argument("--allow-api-key", action="store_true")
+    desktop = sub.add_parser("desktop", help="open Claude Desktop for an account", allow_abbrev=False)
+    desktop.add_argument("account", nargs="?")  # missing -> Config.get lists the names
+    desktop.add_argument("--dry-run", action="store_true")
     status = sub.add_parser("status", help="show credentials, the newest session and the self-check",
                             allow_abbrev=False)
     status.add_argument("--json", action="store_true")
@@ -88,6 +91,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                           % (e.message if isinstance(e, AisError) else e), file=sys.stderr)
                 ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)
             return core.cmd_uninstall(ctx, ns.dry_run)
+        if ns.command == "desktop":
+            return core.cmd_desktop(_context(started), ns.account or "", ns.dry_run)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)

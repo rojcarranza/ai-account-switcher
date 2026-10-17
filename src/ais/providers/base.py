@@ -75,3 +75,15 @@ class Provider(Protocol):
     def limit_time(self, session: Session, launch_offset: int) -> Optional[float]:
         """End-to-end seconds from the limit hit to the first transcript line appended past launch_offset."""
         ...
+
+    def desktop_data_dir(self, account: Account, home: Path) -> Optional[Path]:
+        """The Desktop data folder of an extra account; None for the default account."""
+        ...
+
+    def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
+        """Command that opens a new Desktop instance; AisError(69) when the app is in none of the roots."""
+        ...
+
+    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+        """PID of the Desktop instance using that data folder (None = the default one); AisError(69) if ps fails."""
+        ...

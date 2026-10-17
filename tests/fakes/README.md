@@ -1,7 +1,9 @@
 # Fakes
 
-Fake `claude`, `security`, `pgrep` and `lsof` scripts for tests live here.
+Fake `claude`, `security`, `pgrep`, `lsof`, `ps` and `open` scripts for tests live here.
 Tests put them first on `PATH` and set `HOME` to a temp dir; they never touch the real HOME, Keychain or ~/.claude.
 
 - `claude_default_sigint`: interactive claude with no signal handling; writes `$$` to `$FAKE_READY`, then dies on SIGINT.
 - `claude_trap`: ignores SIGINT and SIGQUIT, exits 143 on SIGTERM, writes `$$` to `$FAKE_READY`, exits `$FAKE_RC` once `$FAKE_STOP` exists.
+- `ps`: prints `$FAKE_PS_OUT`, or the file `$FAKE_PS_FILE` when set (e.g. `tests/fixtures/ps_desktop.txt`); `$FAKE_PS_ERR` goes to stderr, exits `$FAKE_PS_RC`.
+- `open`: logs its argv to `$FAKE_CALL_LOG`; with `$FAKE_OPEN_FORBID` set it logs `FORBIDDEN` and exits 99; else prints `$FAKE_OPEN_ERR` to stderr and exits `$FAKE_OPEN_RC`.

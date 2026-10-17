@@ -23,7 +23,10 @@ class DryRunTest(SwitchCase):
         plugin.write_text("plugin")
         (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(plugin)}))
         (self.ais_dir / "snapshots").mkdir()
-        for cmd in (["setup"], ["switch", "work"], ["run", "work"], ["login", "work"], ["uninstall"]):
+        (self.home / "Applications" / "Claude.app").mkdir(parents=True)  # found on Linux CI too
+        self.env(FAKE_CALL_LOG=os.devnull)  # the fake ps would log into the hashed HOME
+        for cmd in (["setup"], ["switch", "work"], ["run", "work"], ["login", "work"], ["desktop", "work"],
+                    ["uninstall"]):
             with self.subTest(cmd=cmd[0]):
                 before = tree_hash(self.home)
                 code, _, err = self.ais(*(cmd + ["--dry-run"]), stdin="\n" * 6 if cmd == ["setup"] else "")
