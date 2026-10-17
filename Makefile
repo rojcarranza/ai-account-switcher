@@ -8,9 +8,13 @@ test:
 lint:
 	python3 -m compileall -q src tests
 
+# rebuild only when dist/ais is missing or a source is newer: zipapp embeds build time,
+# and a needless rebuild would make install overwrite ais.prev
 build:
 	mkdir -p "$(DIST)"
-	python3 -m zipapp src -m "ais.__main__:run" -p "/usr/bin/env python3" -o "$(DIST)/ais"
+	if [ ! -e "$(DIST)/ais" ] || [ -n "$$(find src -name '*.py' -newer "$(DIST)/ais")" ]; then \
+		python3 -m zipapp src -m "ais.__main__:run" -p "/usr/bin/env python3" -o "$(DIST)/ais"; \
+	fi
 
 install: build
 	mkdir -p $(HOME)/.local/bin
