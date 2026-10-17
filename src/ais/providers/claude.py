@@ -5,6 +5,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import unicodedata
 import uuid
 from pathlib import Path
@@ -193,6 +194,14 @@ def _same_folder(cwd: str, target_real: str) -> bool:
 
 
 class ClaudeProvider:
+    install_hint = "install Claude Code: https://code.claude.com/docs/en/setup"
+
+    def default_settings_roots(self) -> Dict[str, Path]:
+        return default_settings_roots()
+
+    def describe_env(self, env: Mapping[str, str]) -> str:
+        return "%s=%s " % (SLOT_ENV, shlex.quote(env[SLOT_ENV])) if SLOT_ENV in env else ""
+
     def _scan(self, cache: Any) -> List[Session]:
         """Sessions from projects/*/*.jsonl (top level only: subagent transcripts live deeper), newest first."""
         found = []
