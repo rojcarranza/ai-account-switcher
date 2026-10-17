@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fake cp: exits 1 when $FAKE_CP_FAIL is set; else logs argv and runs /bin/cp. Drops "-c" (APFS clone, absent on Linux).
+[ -n "${FAKE_CP_FAIL:-}" ] && exit 1
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "cp $*" >> "$FAKE_CALL_LOG"
+[ "${1:-}" = "-c" ] && shift
+exec /bin/cp "$@"

@@ -319,6 +319,10 @@ class ClaudeProvider:
     def login_command(self) -> List[str]:
         return ["claude", "auth", "login"]
 
+    def snapshot_paths(self, session: Session) -> List[Path]:
+        sub = session.transcript.with_suffix("")  # <id>/ holds subagent files
+        return [session.transcript] + ([sub] if sub.is_dir() else [])
+
     def self_check(self) -> List[str]:
         _, out, warn, _ = procs.run(["claude", "--version"], VERSION_TIMEOUT)
         if warn:
