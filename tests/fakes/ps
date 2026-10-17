@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake ps: prints $FAKE_PS_OUT (lines "<pid> <args>").
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "ps $*" >> "$FAKE_CALL_LOG"
+printf '%s\n' "${FAKE_PS_OUT:-}"

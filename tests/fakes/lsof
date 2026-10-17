@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fake lsof: prints $FAKE_LSOF_OUT; with FAKE_LSOF_HANG=1 leaves a child behind (pid in $FAKE_LSOF_CHILD_FILE) and hangs.
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "lsof $*" >> "$FAKE_CALL_LOG"
+if [ -n "${FAKE_LSOF_HANG:-}" ]; then
+    sleep 30 &
+    echo $! > "$FAKE_LSOF_CHILD_FILE"
+    sleep 30
+fi
+printf '%s\n' "${FAKE_LSOF_OUT:-}"

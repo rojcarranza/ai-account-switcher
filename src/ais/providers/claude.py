@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from ais.accounts import Account
 from ais.providers.base import Session
 
+PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
 SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
 TESTED_VERSIONS = ("2.1.301", "2.1.301")  # min, max inclusive (spike (f))
@@ -221,6 +222,18 @@ class ClaudeProvider:
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
+
+    def open_session_pid(self, session: Session, procs: Mapping[int, Tuple[str, Path]]) -> Optional[int]:
+        """Lowest PID of a claude with cwd in the session folder; the daemon and bg-* helpers are not sessions."""
+        target = _nfc_real(str(session.folder))
+        for pid in sorted(procs):
+            args, cwd = procs[pid]
+            words = args.split()
+            if len(words) > 1 and (words[1] == "daemon" or words[1].startswith("bg-")):
+                continue
+            if _same_folder(str(cwd), target):
+                return pid
+        return None
 
     def env_for(self, account: Account, base_env: Mapping[str, str]) -> Tuple[Dict[str, str], List[str]]:
         env = dict(base_env)
