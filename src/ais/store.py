@@ -17,9 +17,12 @@ LOG_MAX = 1024 * 1024
 def _sync(fd: int) -> None:
     # macOS fsync does not flush the drive cache; F_FULLFSYNC does
     if hasattr(fcntl, "F_FULLFSYNC"):
-        fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
-    else:
-        os.fsync(fd)
+        try:
+            fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+            return
+        except OSError:  # some filesystems reject it
+            pass
+    os.fsync(fd)
 
 
 class Store:
@@ -90,11 +93,13 @@ class Store:
                     f.flush()
                     _sync(f.fileno())
                 os.replace(tmp, str(path))
-                dfd = os.open(str(self.dir), os.O_RDONLY)
-                try:
-                    os.fsync(dfd)
-                finally:
-                    os.close(dfd)
+                # the replace is done; a dir-fsync failure must not report the write as failed
+                with contextlib.suppress(OSError):
+                    dfd = os.open(str(self.dir), os.O_RDONLY)
+                    try:
+                        os.fsync(dfd)
+                    finally:
+                        os.close(dfd)
             except BaseException as e:
                 if tmp:
                     with contextlib.suppress(OSError):
@@ -106,6 +111,8 @@ class Store:
 
     def prune_state(self, exists: Callable[[str], bool]) -> None:
         def prune(d: dict) -> dict:
+            if not isinstance(d.get("sessions", {}), dict):
+                raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (self.dir / "state.json"))
             d["sessions"] = {k: v for k, v in d.get("sessions", {}).items() if exists(k)}
             return d
         self.update_json("state.json", prune)

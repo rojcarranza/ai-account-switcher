@@ -34,11 +34,20 @@ def run_py(code, home):
                             stdout=subprocess.PIPE, universal_newlines=True)
 
 
+def finish(p):
+    try:
+        return p.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
+        raise
+
+
 class FlockTest(TempHomeCase):
     def test_concurrent_updates_not_lost(self):
         procs = [run_py(INC, self.home) for _ in range(2)]
         for p in procs:
-            p.communicate(timeout=30)
+            finish(p)
             self.assertEqual(p.returncode, 0)
         self.assertEqual(Store(self.home).read_json("n.json"), {"n": 100})
 
@@ -59,9 +68,9 @@ class FlockTest(TempHomeCase):
     def test_switch_mutex_blocks_second_holder(self):
         s = Store(self.home)
         with s.switch_mutex():
-            out, _ = run_py(TRY, self.home).communicate(timeout=30)
+            out, _ = finish(run_py(TRY, self.home))
             self.assertEqual(out.strip(), "blocked")
-        out, _ = run_py(TRY, self.home).communicate(timeout=30)
+        out, _ = finish(run_py(TRY, self.home))
         self.assertEqual(out.strip(), "acquired")
 
     def test_log_rotates_at_1mb_under_lock(self):

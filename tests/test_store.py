@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import stat
@@ -41,6 +42,27 @@ class StoreTest(TempHomeCase):
         self.assertIn(str(path), cm.exception.message)
         self.assertEqual(json.loads(path.read_text()), {"v": 1})
         self.assertEqual(sorted(p.name for p in self.ais_dir.iterdir()), [".lock", "state.json"])
+
+    def test_dir_fsync_failure_is_best_effort(self):
+        s = Store(self.home)
+        with mock.patch("ais.store._sync"), mock.patch("os.fsync", side_effect=OSError("nope")):
+            self.assertEqual(s.update_json("state.json", lambda d: {"v": 2}), {"v": 2})
+        self.assertEqual(s.read_json("state.json"), {"v": 2})
+
+    def test_full_fsync_rejected_falls_back_to_fsync(self):
+        s = Store(self.home)
+        with mock.patch.object(fcntl, "F_FULLFSYNC", 51, create=True), \
+                mock.patch("fcntl.fcntl", side_effect=OSError("unsupported")):
+            s.update_json("state.json", lambda d: {"v": 3})
+        self.assertEqual(s.read_json("state.json"), {"v": 3})
+
+    def test_prune_state_sessions_not_object_exits_78(self):
+        s = Store(self.home)
+        s.update_json("state.json", lambda d: {"sessions": [1]})
+        with self.assertRaises(AisError) as cm:
+            s.prune_state(lambda p: True)
+        self.assertEqual(cm.exception.code, 78)
+        self.assertIn(str(self.ais_dir / "state.json"), cm.exception.message)
 
     def test_update_json_cleans_temp_on_non_oserror(self):
         s = Store(self.home)
