@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake claude for tests: only --version is supported.
+if [ "${1:-}" = "--version" ]; then
+    echo "${FAKE_CLAUDE_VERSION:-2.1.301} (Claude Code)"
+    exit 0
+fi
+echo "fake claude: unsupported arguments: $*" >&2
+exit 2
