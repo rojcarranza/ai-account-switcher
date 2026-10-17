@@ -195,6 +195,8 @@ def _same_folder(cwd: str, target_real: str) -> bool:
 
 class ClaudeProvider:
     install_hint = "install Claude Code: https://code.claude.com/docs/en/setup"
+    resume_flags = ("--resume", "--continue", "--from-pr", "--fork-session")
+    short_resume_letters = "rc"
 
     def default_settings_roots(self) -> Dict[str, Path]:
         return default_settings_roots()

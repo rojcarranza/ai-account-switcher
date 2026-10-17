@@ -18,6 +18,8 @@ class Provider(Protocol):
     """Everything provider-specific goes through this interface (FR-5.1)."""
 
     install_hint: str
+    resume_flags: Tuple[str, ...]  # long flags that resume or fork a session
+    short_resume_letters: str  # short flags (single letters) that resume a session
 
     def default_settings_roots(self) -> Dict[str, Path]: ...
 

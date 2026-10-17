@@ -29,7 +29,8 @@ if [ "${1:-}" = "auth" ] && [ "${2:-}" = "login" ]; then
     exit "${FAKE_CLAUDE_LOGIN_RC:-0}"
 fi
 if [ -n "${FAKE_CLAUDE_ARGV_LOG:-}" ]; then
-    printf '%s\n' "$@" > "$FAKE_CLAUDE_ARGV_LOG"
+    : > "$FAKE_CLAUDE_ARGV_LOG"
+    for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_CLAUDE_ARGV_LOG"; done
     echo "slot=${CLAUDE_SECURESTORAGE_CONFIG_DIR-<unset>}" > "$FAKE_CLAUDE_ARGV_LOG.env"
     if [ -n "${FAKE_CLAUDE_WRITE_TRANSCRIPT:-}" ]; then
         mkdir -p "$(dirname "$FAKE_CLAUDE_WRITE_TRANSCRIPT")"

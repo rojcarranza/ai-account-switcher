@@ -106,12 +106,7 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
     if dry_run:
         print(provider.describe_env(env) + " ".join(shlex.quote(a) for a in cmd))
         return 0
-    try:
-        rc = runner.run_claude(cmd, env, ctx.cwd, acc.label, on_started=lambda: None)
-    except AisError as e:
-        if e.code == 69:
-            raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
-        raise
+    rc = _spawn(ctx, provider, cmd, env, acc.label)
     try:
         ctx.store.log("login", acc.name, "", "exit %d" % rc)
     except AisError as e:  # claude already ran: its exit code wins over a failed log write
@@ -120,22 +115,32 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
 
 
 _SWITCH_HINT = "use `ais switch` to resume a session"
-_RESUME_FLAGS = ("--resume", "--continue")
 
 
-def _check_run_args(args: List[str], allow_api_key: bool) -> None:
+def _check_run_args(provider: Provider, args: List[str], allow_api_key: bool) -> None:
+    # a short flag may carry its value attached (-r5, -r=abc) or sit in a cluster (-pr5)
+    short = re.compile(r"^-[A-Za-z]*[%s]" % re.escape(provider.short_resume_letters))
     for a in args:
         flag = a.split("=", 1)[0]
-        if flag in _RESUME_FLAGS or a in ("-r", "-c") or (re.match(r"^-[A-Za-z]{2,}$", a) and set(a) & {"r", "c"}):
+        if flag in provider.resume_flags or (not a.startswith("--") and short.match(a)):
             raise AisError(EXIT_USAGE, "ais run does not take %s; %s" % (a, _SWITCH_HINT))
         if flag == "--settings" and not allow_api_key:
             raise AisError(EXIT_USAGE, "ais run does not take --settings (it can set an API key); %s" % _SWITCH_HINT)
 
 
+def _spawn(ctx: Context, provider: Provider, cmd: List[str], env: Dict[str, str], label: str) -> int:
+    try:
+        return runner.run_claude(cmd, env, ctx.cwd, label, on_started=lambda: None)
+    except AisError as e:
+        if e.code == 69:
+            raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
+        raise
+
+
 def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key: bool, dry_run: bool) -> int:
-    _check_run_args(args, allow_api_key)
     acc = ctx.config.get(account or ctx.config.default)
     provider = ctx.provider_for(acc)
+    _check_run_args(provider, args, allow_api_key)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)
     risks = provider.billing_risks(env, ctx.cwd, args, ctx.settings_roots or provider.default_settings_roots())
@@ -145,15 +150,11 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
         print(provider.describe_env(env) + " ".join(shlex.quote(a) for a in cmd))
         return 0
     launched = time.time()
-    try:
-        rc = runner.run_claude(cmd, env, ctx.cwd, acc.label, on_started=lambda: None)
-    except AisError as e:
-        if e.code == 69:
-            raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
-        raise
+    rc = _spawn(ctx, provider, cmd, env, acc.label)
     session_id = ""
     try:  # claude already ran: its exit code wins over a failed record or log write
         s = provider.newest_session(ctx.cwd, Cache(ctx.store))
+        # accepted residual risk: a concurrent new session in this folder could be attributed to this run
         if s is not None:
             st = os.stat(str(s.transcript))
             if getattr(st, "st_birthtime", st.st_mtime) >= launched - 2:
@@ -161,8 +162,9 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
                 at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 def fn(d: dict) -> dict:
-                    sessions = d.get("sessions")
-                    d["sessions"] = sessions = sessions if isinstance(sessions, dict) else {}
+                    sessions = d.setdefault("sessions", {})
+                    if not isinstance(sessions, dict):
+                        raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (ctx.store.dir / "state.json"))
                     sessions[str(s.transcript)] = {"account": acc.name, "at": at}
                     return d
                 ctx.store.update_json("state.json", fn)

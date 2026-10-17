@@ -88,7 +88,9 @@ class RunTest(TempHomeCase):
 
     def test_run_rejects_resume_and_continue_flags(self):
         for flag in (["--resume"], ["--resume=abc"], ["--continue"], ["--continue=x"],
-                     ["-r"], ["-c"], ["-pc"], ["-rp"], ["--resume", "abc"]):
+                     ["-r"], ["-c"], ["-pc"], ["-rp"], ["--resume", "abc"],
+                     ["-r=abc"], ["-r5"], ["-pr5"], ["-c=1"], ["--from-pr"], ["--from-pr=12"],
+                     ["--fork-session"]):
             code, _, err = self.ais("run", "--", *flag)
             self.assertEqual(code, 64, flag)
             self.assertIn("ais switch", err)
@@ -144,6 +146,24 @@ class RunTest(TempHomeCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.state(), {})
         self.assertEqual(self.log_lines()[0]["session_id"], "")
+
+    def test_run_flags_after_double_dash_go_to_claude(self):
+        code, out, _ = self.ais("run", "--", "--dry-run")
+        self.assertEqual((code, out), (0, ""))
+        self.assertEqual(self.argv(), ["--dry-run"])
+
+    def test_run_trailing_double_dash_means_no_args(self):
+        code, _, _ = self.ais("run", "work", "--")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.argv(), [])
+        self.assertEqual(self.slot(), "slot=" + self.work)
+
+    def test_run_non_object_sessions_warns_and_keeps_exit_code(self):
+        (self.ais_dir / "state.json").write_text(json.dumps({"sessions": []}))
+        code, _, err = self.ais("run")
+        self.assertEqual(code, 0)
+        self.assertIn("sessions is not an object", err)
+        self.assertEqual(json.loads((self.ais_dir / "state.json").read_text()), {"sessions": []})
 
     def test_run_record_failure_keeps_exit_code(self):
         os.environ["FAKE_CLAUDE_RUN_RC"] = "4"
