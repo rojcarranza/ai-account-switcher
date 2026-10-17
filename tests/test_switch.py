@@ -292,6 +292,18 @@ class SwitchTest(SwitchCase):
         self.assertEqual(offset[0], 2000)
         self.assertLess(self.log_lines()[0]["tool_seconds"], 1000)
 
+    def test_limit_time_only_when_session_stopped_at_limit(self):
+        from ais.providers.base import Session
+        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+        marker = json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": "2026-10-16T11:00:00Z"})
+        normal = json.dumps({"type": "user", "timestamp": "2026-10-16T11:30:00Z"})
+        later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
+        s = Session(UUID, self.proj, self.transcript, "", 0.0)
+        self.transcript.write_text("\n".join([marker, normal, later]) + "\n")  # limit hit, then work went on
+        self.assertIsNone(ClaudeProvider().limit_time(s, launch))
+        self.transcript.write_text("\n".join([normal, marker, "not json", later]) + "\n")  # stopped at the limit
+        self.assertEqual(ClaudeProvider().limit_time(s, launch), 3610.0)
+
     def test_limit_time_odd_fraction_digits(self):
         from ais.providers.base import Session
         launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
@@ -396,7 +408,6 @@ class SwitchTest(SwitchCase):
                              "timestamp": iso(limited)}) + "\n"
         self.transcript.write_text(
             line("Main task", self.proj, timestamp=iso(limited - 60)) + marker + "not json\n"
-            + json.dumps({"type": "assistant", "timestamp": iso(limited + 1)}) + "\n"  # not a marker
             + json.dumps({"type": "user", "timestamp": iso(after)}) + "\n"
             + json.dumps({"type": "user", "timestamp": iso(after + 50)}) + "\n")
         self.last_used("work")
