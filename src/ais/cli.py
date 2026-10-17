@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import List, NoReturn, Optional
 
-from ais import __version__, core, providers
+from ais import __version__, core, menu, providers
 from ais.accounts import EXIT_USAGE, Config, load_config
 from ais.errors import AisError
 from ais.store import Store
@@ -44,6 +44,9 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--dry-run", action="store_true")
     uninstall = sub.add_parser("uninstall", help="remove ais's own files", allow_abbrev=False)
     uninstall.add_argument("--dry-run", action="store_true")
+    menu_p = sub.add_parser("menu", help="SwiftBar menu", allow_abbrev=False)
+    menu_sub = menu_p.add_subparsers(dest="menu_command", parser_class=_Parser)
+    menu_sub.add_parser("render", help="print the SwiftBar menu", allow_abbrev=False)
     return p
 
 
@@ -93,6 +96,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return core.cmd_uninstall(ctx, ns.dry_run)
         if ns.command == "desktop":
             return core.cmd_desktop(_context(started, cwd_optional=True), ns.account or "", ns.dry_run)
+        if ns.command == "menu":
+            if ns.menu_command is None:
+                raise AisError(EXIT_USAGE, "a menu command is required: render")
+            menu.cmd_menu_render(lambda: _context(started, cwd_optional=True), os.path.abspath(sys.argv[0]), started)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)
