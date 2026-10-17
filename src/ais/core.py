@@ -505,11 +505,18 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
         cred = None  # type: Optional[str]
         if extra:
             root = home / provider.cred_dir_root
-            found = sorted(p for p in root.glob("*") if p.is_dir()) if root.is_dir() else []
+            found = []  # type: List[Path]
+            for p in sorted(root.glob("*")) if root.is_dir() else []:
+                if p.name.startswith(".") or not p.is_dir():
+                    continue
+                if unicodedata.normalize("NFC", str(p)) != str(p):  # a different spelling is another Keychain slot
+                    print("skipping %s: its name is not NFC-normalized" % p, file=sys.stderr)
+                    continue
+                found.append(p)
             for n, p in enumerate(found, 1):
                 print("  %d) %s" % (n, p), file=sys.stderr)
             a = ask("Folder for %s (number or path)" % name, str(root / name))
-            if a.isdigit() and 1 <= int(a) <= len(found):
+            if a.isascii() and a.isdigit() and 1 <= int(a) <= len(found):
                 cred = str(found[int(a) - 1])
             else:
                 cred = unicodedata.normalize("NFC", str(home / a[2:]) if a.startswith("~/") else a)
@@ -517,7 +524,8 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
             try:
                 _check_cred_dir(ctx.store.dir / "config.json", name, cred, os.path.realpath(str(home)))
             except AisError as e:
-                raise AisError(EXIT_USAGE, e.message)
+                # drop _check_cred_dir's config.json prefix: no config exists yet
+                raise AisError(EXIT_USAGE, "account %s: %s" % (name, e.message.partition(": account %s: " % name)[2]))
         picked.append(Account(name, label, DEFAULT_PROVIDER, cred))
 
     new_dirs = [] if ctx.store.dir.exists() else _missing_dirs(ctx.store.dir)
@@ -537,9 +545,11 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
               "menu_privacy": existing.get("menu_privacy", False)}
     if dry_run:
         print("config.json would contain:\n" + json.dumps(config, indent=2))
+        seen = set()  # type: set
         for a in picked:
             env, warnings = provider.env_for(a, ctx.env)
-            guards.print_warnings(warnings)
+            guards.print_warnings([w for w in warnings if w not in seen])
+            seen.update(warnings)
             prefix = provider.describe_env(env)
             print("%s: check with: %s%s" % (a.name, prefix, shlex.join(provider.auth_status_command())))
             print("%s: sign in only if logged out: %s%s" % (a.name, prefix, shlex.join(provider.login_command())))
@@ -547,6 +557,7 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
         print("Nothing written.", file=sys.stderr)
         return EXIT_DECLINED
     else:
+        made = []  # type: List[Path]
         try:
             for d in cred_dirs:
                 try:
@@ -555,6 +566,7 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
                     if d.is_dir():
                         continue
                     raise
+                made.append(d)
                 d.chmod(0o700)  # the umask must not decide the mode
         except OSError as e:
             raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (d, e))
@@ -564,7 +576,13 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
             out = dict(config)
             out.update({k: d.get(k, v) for k, v in keep.items()})
             return out
-        ctx.store.update_json("config.json", fn)
+        try:
+            ctx.store.update_json("config.json", fn)
+        except (AisError, OSError):
+            for d in reversed(made):  # undo only what this run created, never recursively
+                with contextlib.suppress(OSError):
+                    d.rmdir()
+            raise
         ctx2 = Context(ctx.store, load_config(ctx.store, REGISTRY), ctx.provider_for, ctx.env, ctx.cwd,
                        ctx.settings_roots, ctx.started)
         for a in picked:

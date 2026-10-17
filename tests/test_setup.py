@@ -208,3 +208,44 @@ class SetupTest(TempHomeCase):
         self.assertEqual(code, 0)
         self.assertIn("Setup would create:", out)
         self.assertIn(CONFIG_DIR_ENV, err)
+
+    def test_setup_non_ascii_digit_falls_to_path_and_exits_64(self):
+        (self.home / ".claude-accounts" / "a").mkdir(parents=True)
+        code, _, err = self.ais("\n\n\n\n\u00b2\ny\n")
+        self.assertEqual(code, 64)
+        self.assertNotIn("Traceback", err)
+
+    def test_setup_skips_hidden_and_non_nfc_folders(self):
+        root = self.home / ".claude-accounts"
+        nfd = root / "cafe\u0301"
+        (root / ".hidden").mkdir(parents=True)
+        nfd.mkdir()
+        (root / "ok").mkdir()
+        code, out, err = self.ais(BLANK + "n\n")
+        self.assertEqual(code, 65)
+        self.assertIn("1) %s" % (root / "ok"), err)
+        self.assertNotIn(".hidden", err.replace("skipping", ""))
+        self.assertIn("skipping %s" % nfd, err)
+        self.assertNotIn("2)", err)
+
+    def test_setup_failed_config_write_removes_dirs_it_created(self):
+        from ais.errors import AisError
+        before = tree(self.home)
+        with mock.patch("ais.store.Store.update_json", side_effect=AisError(73, "cannot write")):
+            code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 73)
+        self.assertFalse((self.home / ".claude-accounts").exists())
+        self.assertFalse((self.home / ".claude-accounts" / "work").exists())
+        self.assertNotIn(".claude-accounts", " ".join(tree(self.home)))
+        self.assertLessEqual(set(tree(self.home)) - set(before), {".config", ".config/ais"})
+
+    def test_setup_bad_cred_dir_message_is_about_the_answer(self):
+        code, _, err = self.ais("\n\n\n\nrel/dir\ny\n")
+        self.assertEqual(code, 64)
+        self.assertIn("must be an absolute path", err)
+        self.assertNotIn("config.json", err)
+
+    def test_setup_dry_run_prints_each_warning_once(self):
+        os.environ[CONFIG_DIR_ENV] = "/x"
+        _, _, err = self.ais(BLANK, "--dry-run")
+        self.assertEqual(err.count("removed inherited " + CONFIG_DIR_ENV), 1)
