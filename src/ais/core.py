@@ -83,9 +83,17 @@ def credential_state(store: Store, provider: Any, account: Account, cache_only: 
 class Cache:
     """Per-file (folder, title) cache in cache.json, keyed by path and valid for the same mtime and size."""
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, on_error: Optional[Callable[[str], None]] = None):
+        """With on_error, a failed read or save is reported there and the cache starts empty."""
         self.store = store
-        old = _read_cache(store).get("transcripts", {})
+        self._on_error = on_error
+        try:
+            old = _read_cache(store).get("transcripts", {})
+        except AisError as e:
+            if on_error is None:
+                raise
+            on_error(e.message)
+            old = {}
         self._old = old if isinstance(old, dict) else {}
         self._seen = {}  # type: Dict[str, dict]
         self._dirty = False
@@ -108,7 +116,12 @@ class Cache:
         def fn(d: dict) -> dict:
             d["transcripts"] = self._seen  # paths not seen in this scan are dropped
             return d
-        self.store.update_json("cache.json", fn)
+        try:
+            self.store.update_json("cache.json", fn)
+        except (AisError, OSError) as e:
+            if self._on_error is None:
+                raise
+            self._on_error("cannot write cache.json: %s" % getattr(e, "message", e))
 
 
 @dataclass
@@ -400,21 +413,7 @@ def gather_status(ctx: Context, cache_only: bool) -> dict:
         accounts.append({"name": acc.name, "label": acc.label, "credential_present": state,
                          "credential_source": source, "credential_error": error})
 
-    class StatusCache(Cache):
-        def __init__(self, store: Store):
-            try:
-                Cache.__init__(self, store)
-            except AisError as e:  # unreadable cache.json: start empty
-                extra.append(e.message)
-                self.store, self._old, self._seen, self._dirty = store, {}, {}, False
-
-        def save(self) -> None:
-            try:
-                Cache.save(self)
-            except (AisError, OSError) as e:
-                extra.append("cannot write cache.json: %s" % getattr(e, "message", e))
-
-    cache = StatusCache(ctx.store)
+    cache = Cache(ctx.store, extra.append)
     everything = provider.recent_sessions(sys.maxsize, cache)  # one scan serves both lists
     newest = next((s for s in everything if provider.in_folder(s, ctx.cwd)), None)
     recent = everything[:RECENT_COUNT]
@@ -428,7 +427,7 @@ def gather_status(ctx: Context, cache_only: bool) -> dict:
     def is_open(s: Session) -> bool:
         return provider.open_session_pid(s, found) is not None
 
-    messages = provider.self_check() + extra
+    messages = list(dict.fromkeys(provider.self_check() + extra))  # unique, first-seen order
     return {
         "accounts": accounts,
         "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest, sessions),

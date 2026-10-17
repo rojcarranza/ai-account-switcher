@@ -132,4 +132,6 @@ class StatusTest(SwitchCase):
         self.assertEqual(code, 0)
         self.assertIn("credential present: yes", out)
         self.assertIn("session %s" % UUID, out)
-        self.assertIn("warning: ", out)
+        warnings = [l for l in out.splitlines() if l.startswith("warning: ")]
+        self.assertEqual(len(warnings), 2)  # one read failure, one write failure, each reported once
+        self.assertEqual(sum(w.startswith("warning: cannot write cache.json") for w in warnings), 1)
