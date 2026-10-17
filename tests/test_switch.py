@@ -161,6 +161,21 @@ class SwitchTest(SwitchCase):
         self.assertIn("assuming it last ran on Personal", err)
         self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
 
+    def test_switch_unknown_last_used_still_asks_ack(self):
+        code, _, err = self.ais("switch", stdin="")  # FR-2.8 for personal->work: EOF declines
+        self.assertEqual(code, 65)
+        self.assertIn("will be sent under Work", err)
+        self.assertIsNone(self.argv())
+        self.assertEqual(self.snapshots(), [])
+
+    def test_switch_unknown_last_used_three_accounts_64_without_note(self):
+        self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
+                                                    "credDir": str(self.home / ".claude-extra")}})
+        code, _, err = self.ais("switch")
+        self.assertEqual(code, 64)
+        self.assertNotIn("assuming", err)
+        self.assertIsNone(self.argv())
+
     def test_switch_named_same_account_no_ack_prompt(self):
         self.last_used("work")
         code, _, err = self.ais("switch", "work", stdin="")  # a prompt would read EOF and exit 65
