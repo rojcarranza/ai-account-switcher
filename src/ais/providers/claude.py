@@ -228,8 +228,10 @@ class ClaudeProvider:
         target = _nfc_real(str(session.folder))
         for pid in sorted(procs):
             args, cwd = procs[pid]
+            # the executable path may hold spaces (Application Support): find the token that ends it
             words = args.split()
-            if len(words) > 1 and (words[1] == "daemon" or words[1].startswith("bg-")):
+            i = next((n for n, w in enumerate(words) if w == PROCESS_NAME or w.endswith("/" + PROCESS_NAME)), None)
+            if i is not None and i + 1 < len(words) and (words[i + 1] == "daemon" or words[i + 1].startswith("bg-")):
                 continue
             if _same_folder(str(cwd), target):
                 return pid

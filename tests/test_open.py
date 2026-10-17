@@ -24,7 +24,7 @@ class OpenTest(TempHomeCase):
 
     def env(self, **kw):
         for k, v in kw.items():
-            self._env[k] = os.environ.get(k)
+            self._env.setdefault(k, os.environ.get(k))
             os.environ[k] = v
 
     def _unset(self):
@@ -37,7 +37,7 @@ class OpenTest(TempHomeCase):
     def fake(self, procs_):
         """procs_: list of (pid, args, cwd)."""
         self.env(FAKE_PGREP_OUT="\n".join(str(p) for p, _, _ in procs_),
-                 FAKE_PS_OUT="\n".join("%d %s" % (p, a) for p, a, _ in procs_),
+                 FAKE_PS_OUT="\n".join("%5d %s" % (p, a) for p, a, _ in procs_),
                  FAKE_LSOF_OUT="\n".join("p%d\nn%s" % (p, c) for p, _, c in procs_))
 
     def session(self):
@@ -113,3 +113,27 @@ class OpenTest(TempHomeCase):
         found, warns = procs.process_cwds("claude", 5)
         self.assertEqual(found, {})
         self.assertTrue(warns and "pgrep" in warns[0])
+
+    def test_escaped_utf8_cwd_from_c_locale_lsof(self):
+        d = self.home / "café a b"
+        d.mkdir()
+        self.folder = d
+        esc = str(self.home) + "/caf\\xc3\\xa9 a b"
+        self.env(FAKE_PGREP_OUT="7", FAKE_PS_OUT="  7 claude", FAKE_LSOF_OUT="p7\nn" + esc)
+        self.assertEqual(self.pid(), 7)
+
+    def test_lsof_runs_with_utf8_locale(self):
+        self.fake([(7, "claude", "/a")])
+        procs.process_cwds("claude", 5)
+        self.assertIn("LC_ALL=en_US.UTF-8", self.log.read_text())
+
+    def test_lsof_exit_1_without_records_warns(self):
+        self.env(FAKE_PGREP_OUT="7", FAKE_PS_OUT="7 claude", FAKE_LSOF_OUT="", FAKE_LSOF_RC="1")
+        found, warns = procs.process_cwds("claude", 5)
+        self.assertEqual(found, {})
+        self.assertTrue(warns and "lsof" in warns[0])
+
+    def test_daemon_from_path_with_space_is_ignored(self):
+        self.fake([(1, DESKTOP + " daemon run", str(self.folder)),
+                   (2, DESKTOP + " bg-spare", str(self.folder))])
+        self.assertIsNone(self.pid())
