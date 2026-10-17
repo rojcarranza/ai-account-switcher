@@ -158,7 +158,7 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
         if s is not None:
             st = os.stat(str(s.transcript))
             if getattr(st, "st_birthtime", st.st_mtime) >= launched - 2:
-                at =datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 def fn(d: dict) -> dict:
                     sessions = d.setdefault("sessions", {})
