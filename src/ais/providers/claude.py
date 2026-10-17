@@ -5,7 +5,6 @@ import json
 import os
 import plistlib
 import re
-import subprocess
 import unicodedata
 import uuid
 from pathlib import Path
@@ -310,13 +309,9 @@ class ClaudeProvider:
         return ["claude", "auth", "login"]
 
     def self_check(self) -> List[str]:
-        try:
-            out = subprocess.run(["claude", "--version"], stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 universal_newlines=True, errors="replace",
-                                 timeout=VERSION_TIMEOUT).stdout
-        except (OSError, subprocess.TimeoutExpired) as e:
-            return ["cannot check the Claude Code version: %s" % e]
+        _, out, warn, _ = procs.run(["claude", "--version"], VERSION_TIMEOUT)
+        if warn:
+            return ["cannot check the Claude Code version: %s" % warn]
         m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", out)
         if not m:
             return ["cannot parse the Claude Code version from %r" % out.strip()[:80]]
