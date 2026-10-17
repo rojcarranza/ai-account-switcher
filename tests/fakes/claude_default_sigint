@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake interactive claude with no signal handling: must die on SIGINT.
+echo $$ > "$FAKE_READY.tmp" && mv "$FAKE_READY.tmp" "$FAKE_READY"
+exec sleep 30

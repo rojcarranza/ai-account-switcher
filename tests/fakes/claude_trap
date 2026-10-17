@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fake interactive claude that ignores SIGINT and SIGQUIT, exits 143 on SIGTERM,
+# and exits $FAKE_RC once $FAKE_STOP exists (gives up after ~30 s).
+trap '' INT QUIT
+trap 'exit 143' TERM
+echo $$ > "$FAKE_READY.tmp" && mv "$FAKE_READY.tmp" "$FAKE_READY"
+i=0
+while [ ! -e "$FAKE_STOP" ] && [ "$i" -lt 600 ]; do
+    sleep 0.05
+    i=$((i + 1))
+done
+exit "${FAKE_RC:-0}"
