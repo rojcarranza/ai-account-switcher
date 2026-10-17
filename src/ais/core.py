@@ -11,6 +11,7 @@ class Cache:
         old = store.read_json("cache.json").get("transcripts", {})
         self._old = old if isinstance(old, dict) else {}
         self._seen = {}  # type: Dict[str, dict]
+        self._dirty = False
 
     def lookup(self, path: str, mtime: float, size: int) -> Optional[Tuple[str, str]]:
         e = self._seen.get(path) or self._old.get(path)
@@ -21,9 +22,12 @@ class Cache:
         return None
 
     def put(self, path: str, mtime: float, size: int, folder: str, title: str) -> None:
+        self._dirty = True
         self._seen[path] = {"mtime": mtime, "size": size, "folder": folder, "title": title}
 
     def save(self) -> None:
+        if not self._dirty and self._seen.keys() == self._old.keys():
+            return  # warm scan: skip the lock, rewrite and fsync
         def fn(d: dict) -> dict:
             d["transcripts"] = self._seen  # paths not seen in this scan are dropped
             return d

@@ -178,10 +178,14 @@ def _read_transcript(path: Path) -> Tuple[Optional[str], str]:
     return folder, title or ""
 
 
-def _same_folder(a: str, b: str) -> bool:
+def _nfc_real(p: str) -> str:
     # NFC on both sides: Finder hands out NFD names
-    return (unicodedata.normalize("NFC", os.path.realpath(a))
-            == unicodedata.normalize("NFC", os.path.realpath(b)))
+    return unicodedata.normalize("NFC", os.path.realpath(p))
+
+
+def _same_folder(cwd: str, target_real: str) -> bool:
+    # target_real is already resolved, so an equal spelling needs no realpath of cwd
+    return unicodedata.normalize("NFC", cwd) == target_real or _nfc_real(cwd) == target_real
 
 
 class ClaudeProvider:
@@ -209,7 +213,8 @@ class ClaudeProvider:
         return sorted(found, key=lambda s: s.modified, reverse=True)
 
     def newest_session(self, folder: Path, cache: Any) -> Optional[Session]:
-        return next((s for s in self._scan(cache) if _same_folder(str(s.folder), str(folder))), None)
+        target = _nfc_real(str(folder))
+        return next((s for s in self._scan(cache) if _same_folder(str(s.folder), target)), None)
 
     def recent_sessions(self, limit: int, cache: Any) -> List[Session]:
         return self._scan(cache)[:limit]

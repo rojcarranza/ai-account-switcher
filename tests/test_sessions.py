@@ -101,3 +101,10 @@ class SessionsTest(TempHomeCase):
         self.file_c.write_text('{"type": "user", "message": {"content": "%s"}, "cwd": "%s"}\n'
                                % ("x" * 100, self.home / "other"), encoding="utf-8")
         self.assertEqual(self.p.find_session(C, self.cache).title, "x" * 60)
+
+    def test_warm_scan_does_not_rewrite_cache(self):
+        self.p.recent_sessions(5, self.cache)
+        warm = Cache(Store(self.home))
+        with mock.patch.object(warm.store, "update_json") as upd:
+            self.p.recent_sessions(5, warm)
+        upd.assert_not_called()
