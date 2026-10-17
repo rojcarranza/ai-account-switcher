@@ -3,9 +3,12 @@ import contextlib
 import io
 import json
 import os
+from pathlib import Path
+from unittest import mock
 
 from ais import cli
-from ais.providers.claude import BILLING_ENV, CONFIG_DIR_ENV
+from ais.errors import AisError
+from ais.providers.claude import BILLING_ENV, CONFIG_DIR_ENV, ClaudeProvider
 from tests.helpers import TempHomeCase
 
 SLOT = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
@@ -29,6 +32,12 @@ class LoginTest(TempHomeCase):
                 saved = os.environ.pop(k)
                 self.addCleanup(os.environ.__setitem__, k, saved)
             self.addCleanup(os.environ.pop, k, None)
+
+        # never read the host's /Library settings
+        roots = {"home": self.home, "managed": self.home / "managed", "managed_prefs": self.home / "prefs"}
+        patch = mock.patch.object(ClaudeProvider, "default_settings_roots", lambda _self: roots)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def ais(self, *args):
         out, err = io.StringIO(), io.StringIO()
@@ -89,3 +98,39 @@ class LoginTest(TempHomeCase):
         self.assertEqual(self.calls_text(), "")
         code, _, _ = self.ais("login", "work", "--allow-api-key")
         self.assertEqual(code, 0)
+        self.assertEqual(self.calls_text(), "claude auth login\nslot=%s\n" % self.work)
+        self.assertEqual(len(self.log_lines()), 1)
+
+    def test_log_failure_keeps_claude_exit_code(self):
+        os.environ["FAKE_CLAUDE_LOGIN_RC"] = "3"
+        with mock.patch("ais.store.Store.log", side_effect=AisError(73, "cannot write log")):
+            code, _, err = self.ais("login", "work")
+        self.assertEqual(code, 3)
+        self.assertIn("ais: warning: cannot write log", err)
+
+    def test_ctrl_c_returns_130_without_traceback(self):
+        with mock.patch("ais.core.cmd_login", side_effect=KeyboardInterrupt):
+            code, _, err = self.ais("login", "work")
+        self.assertEqual((code, err), (130, ""))
+
+    def test_missing_cwd_exits_66(self):
+        with mock.patch.object(Path, "cwd", side_effect=FileNotFoundError):
+            code, _, err = self.ais("login", "work")
+        self.assertEqual(code, 66)
+        self.assertIn("the current folder no longer exists", err)
+
+    def test_missing_account_exits_64_listing_names(self):
+        code, _, err = self.ais("login")
+        self.assertEqual(code, 64)
+        self.assertIn("personal, work", err)
+
+    def test_abbreviated_flag_is_not_accepted(self):
+        os.environ["ANTHROPIC_API_KEY"] = "x"
+        code, _, _ = self.ais("login", "work", "--allow")
+        self.assertEqual(code, 64)
+        self.assertEqual(self.calls_text(), "")
+
+    def test_usage_error_starts_with_message(self):
+        _, _, err = self.ais("login", "work", "--bogus")
+        self.assertTrue(err.startswith("ais: "))
+        self.assertIn("\nusage: ais", err)

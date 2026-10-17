@@ -109,5 +109,8 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
         if e.code == 69:
             raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
         raise
-    ctx.store.log("login", acc.name, "", "exit %d" % rc)
+    try:
+        ctx.store.log("login", acc.name, "", "exit %d" % rc)
+    except AisError as e:  # claude already ran: its exit code wins over a failed log write
+        guards.print_warnings([e.message])
     return rc

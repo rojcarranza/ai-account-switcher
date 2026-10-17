@@ -12,15 +12,15 @@ from ais.store import Store
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
-        raise AisError(EXIT_USAGE, "%s\n%s" % (self.format_usage().rstrip(), message))
+        raise AisError(EXIT_USAGE, "%s\n%s" % (message, self.format_usage().rstrip()))
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="ais")
+    p = _Parser(prog="ais", allow_abbrev=False)
     p.add_argument("--version", action="store_true")
     sub = p.add_subparsers(dest="command", parser_class=_Parser)
-    login = sub.add_parser("login", help="sign an account in")
-    login.add_argument("account")
+    login = sub.add_parser("login", help="sign an account in", allow_abbrev=False)
+    login.add_argument("account", nargs="?")  # missing -> Config.get lists the names
     login.add_argument("--dry-run", action="store_true")
     login.add_argument("--allow-api-key", action="store_true")
     return p
@@ -28,8 +28,12 @@ def _parser() -> argparse.ArgumentParser:
 
 def _context() -> core.Context:
     store = Store(Path.home())
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        raise AisError(66, "the current folder no longer exists")
     return core.Context(store, load_config(store, providers.REGISTRY),
-                        lambda a: providers.get(a.provider), dict(os.environ), Path.cwd())
+                        lambda a: providers.get(a.provider), dict(os.environ), cwd)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -40,8 +44,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("ais " + __version__)
             return 0
         if ns.command is None:
-            raise AisError(EXIT_USAGE, _parser().format_usage().rstrip())
-        return core.cmd_login(_context(), ns.account, ns.dry_run, ns.allow_api_key)
+            raise AisError(EXIT_USAGE, "a command is required\n" + _parser().format_usage().rstrip())
+        return core.cmd_login(_context(), ns.account or "", ns.dry_run, ns.allow_api_key)
+    except KeyboardInterrupt:
+        return 130
     except AisError as e:
         print("ais: " + e.message, file=sys.stderr)
         return e.code
