@@ -82,7 +82,7 @@ class ProvidersTest(TempHomeCase):
         for name in BILLING_ENV:
             with self.subTest(name=name):
                 self.assertEqual(self.risks({name: "1"}), ["%s in the environment" % name])
-                self.assertEqual(self.risks({name: ""}), [])
+                self.assertEqual(self.risks({name: ""}), ["%s in the environment" % name])
 
     def test_billing_risks_each_settings_scope_and_profile(self):
         files = [self.home / ".claude" / "settings.json",
@@ -99,6 +99,12 @@ class ProvidersTest(TempHomeCase):
             with self.subTest(path=str(path), key="env"):
                 self.write_json(path, {"env": {"ANTHROPIC_BASE_URL": "https://x", "FOO": "1"}})
                 self.assertEqual(self.risks(), ["ANTHROPIC_BASE_URL in %s env" % path])
+            with self.subTest(path=str(path), key="env empty value"):
+                self.write_json(path, {"env": {"ANTHROPIC_API_KEY": ""}})
+                self.assertEqual(self.risks(), ["ANTHROPIC_API_KEY in %s env" % path])
+            with self.subTest(path=str(path), key="env not an object"):
+                self.write_json(path, {"env": "x"})
+                self.assertEqual(self.risks(), ["cannot read %s: env is not an object" % path])
             with self.subTest(path=str(path), key="harmless"):
                 self.write_json(path, {"env": {"FOO": "1"}, "model": "opus"})
                 self.assertEqual(self.risks(), [])
@@ -156,6 +162,9 @@ class ProvidersTest(TempHomeCase):
         self.assertEqual(self.p.self_check(),
                          ["Claude Code 2.1.400 is outside the tested range 2.1.301-2.1.301"])
         os.environ["FAKE_CLAUDE_VERSION"] = "garbage"
+        self.assertEqual(len(self.p.self_check()), 1)
+        self.addCleanup(os.environ.pop, "FAKE_CLAUDE_BAD_BYTES", None)
+        os.environ["FAKE_CLAUDE_BAD_BYTES"] = "1"
         self.assertEqual(len(self.p.self_check()), 1)
         os.environ["PATH"] = str(self.home)  # no claude on PATH
         self.assertEqual(len(self.p.self_check()), 1)

@@ -1,6 +1,10 @@
 #!/bin/sh
 # Fake claude for tests: only --version is supported.
 if [ "${1:-}" = "--version" ]; then
+    if [ -n "${FAKE_CLAUDE_BAD_BYTES:-}" ]; then
+        printf '\377\376 (Claude Code)\n'
+        exit 0
+    fi
     echo "${FAKE_CLAUDE_VERSION:-2.1.301} (Claude Code)"
     exit 0
 fi

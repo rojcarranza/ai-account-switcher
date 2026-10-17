@@ -54,6 +54,7 @@ def default_settings_roots() -> Dict[str, Path]:
 
 
 def keychain_service(cred_dir: Optional[str]) -> str:
+    # Callers pass None for the default slot; "" would hash, unlike claude (FR-1.7 rejects it).
     if cred_dir is None:
         return "Claude Code-credentials"
     digest = hashlib.sha256(unicodedata.normalize("NFC", cred_dir).encode("utf-8")).hexdigest()
@@ -61,16 +62,18 @@ def keychain_service(cred_dir: Optional[str]) -> str:
 
 
 def _set(env: Mapping[str, Any], name: str) -> bool:
-    # A variable counts when present with a non-empty value; claude ignores empty ones.
-    return env.get(name) not in (None, "")
+    # A variable counts when present, even empty: set-and-empty can differ from unset (fail safe).
+    return name in env
 
 
 def _settings_risks(path: Path, data: Any) -> List[str]:
     if not isinstance(data, dict):
         return ["cannot read %s: top level is not an object" % path]
     risks = ["%s in %s" % (k, path) for k in SETTINGS_KEYS if k in data]
-    block = data.get("env")
-    if isinstance(block, dict):
+    block = data.get("env", {})
+    if not isinstance(block, dict):
+        risks.append("cannot read %s: env is not an object" % path)
+    else:
         risks += ["%s in %s env" % (n, path) for n in BILLING_ENV if _set(block, n)]
     return risks
 
@@ -128,7 +131,8 @@ class ClaudeProvider:
         try:
             out = subprocess.run(["claude", "--version"], stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 universal_newlines=True, timeout=VERSION_TIMEOUT).stdout
+                                 universal_newlines=True, errors="replace",
+                                 timeout=VERSION_TIMEOUT).stdout
         except (OSError, subprocess.TimeoutExpired) as e:
             return ["cannot check the Claude Code version: %s" % e]
         m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", out)
