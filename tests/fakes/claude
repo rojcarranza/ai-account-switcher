@@ -23,5 +23,10 @@ if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
     fi
     exit "${FAKE_CLAUDE_AUTH_RC:-0}"
 fi
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "login" ]; then
+    [ -n "${FAKE_CALL_LOG:-}" ] && echo "claude $*" >> "$FAKE_CALL_LOG"
+    [ -n "${FAKE_CALL_LOG:-}" ] && echo "slot=${CLAUDE_SECURESTORAGE_CONFIG_DIR-<unset>}" >> "$FAKE_CALL_LOG"
+    exit "${FAKE_CLAUDE_LOGIN_RC:-0}"
+fi
 echo "fake claude: unsupported arguments: $*" >&2
 exit 2

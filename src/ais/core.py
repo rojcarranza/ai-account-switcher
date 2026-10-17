@@ -1,8 +1,13 @@
+import shlex
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
-from ais.accounts import Account
+from ais import guards, runner
+from ais.accounts import Account, Config
 from ais.errors import AisError
+from ais.providers.base import Provider
 from ais.store import EXIT_CONFIG, Store
 
 CREDENTIAL_TTL = 600
@@ -75,3 +80,34 @@ class Cache:
             d["transcripts"] = self._seen  # paths not seen in this scan are dropped
             return d
         self.store.update_json("cache.json", fn)
+
+
+@dataclass
+class Context:
+    store: Store
+    config: Config
+    provider_for: Callable[[Account], Provider]
+    env: Dict[str, str]
+    cwd: Path
+    settings_roots: Optional[Mapping[str, Path]] = None  # None = the provider's default
+
+
+def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = False) -> int:
+    acc = ctx.config.get(account)
+    provider = ctx.provider_for(acc)
+    env, warnings = provider.env_for(acc, ctx.env)
+    guards.print_warnings(warnings)
+    risks = provider.billing_risks(env, ctx.cwd, [], ctx.settings_roots or provider.default_settings_roots())
+    guards.refuse_on_risks(risks, allow_api_key)
+    cmd = provider.login_command()
+    if dry_run:
+        print(provider.describe_env(env) + " ".join(shlex.quote(a) for a in cmd))
+        return 0
+    try:
+        rc = runner.run_claude(cmd, env, ctx.cwd, acc.label, on_started=lambda: None)
+    except AisError as e:
+        if e.code == 69:
+            raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
+        raise
+    ctx.store.log("login", acc.name, "", "exit %d" % rc)
+    return rc

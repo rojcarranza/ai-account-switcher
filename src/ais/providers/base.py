@@ -17,6 +17,14 @@ class Session:
 class Provider(Protocol):
     """Everything provider-specific goes through this interface (FR-5.1)."""
 
+    install_hint: str
+
+    def default_settings_roots(self) -> Dict[str, Path]: ...
+
+    def describe_env(self, env: Mapping[str, str]) -> str:
+        """Shell-quoted `NAME=value ` prefix for the per-account variables in env, or ""."""
+        ...
+
     def env_for(self, account: Account, base_env: Mapping[str, str]) -> Tuple[Dict[str, str], List[str]]: ...
 
     def billing_risks(self, env: Mapping[str, str], folder: Path, args: Sequence[str],
