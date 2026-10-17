@@ -92,7 +92,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)
             return core.cmd_uninstall(ctx, ns.dry_run)
         if ns.command == "desktop":
-            return core.cmd_desktop(_context(started), ns.account or "", ns.dry_run)
+            return core.cmd_desktop(_context(started, cwd_optional=True), ns.account or "", ns.dry_run)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)

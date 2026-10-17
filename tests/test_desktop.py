@@ -110,6 +110,18 @@ class DesktopTest(SwitchCase):
         self.assertIn("cannot check for a running Claude Desktop: ps: nope", err)
         self.assertEqual(self.open_calls(), [])
 
+    def test_open_timeout_exits_69(self):
+        self.env(FAKE_OPEN_SLEEP="5")
+        with mock.patch.object(core, "OPEN_TIMEOUT", 0.3):
+            code, _, err = self.desktop("work")
+        self.assertEqual(code, 69)
+        self.assertIn("timed out", err)
+
+    def test_works_without_cwd(self):
+        with mock.patch.object(cli.Path, "cwd", side_effect=OSError("gone")):
+            code, _, err = self.desktop("work")
+        self.assertEqual(code, 0, err)
+
     def test_unknown_account_exits_64(self):
         code, _, err = self.desktop("nobody")
         self.assertEqual(code, 64)
@@ -124,7 +136,7 @@ class DesktopTest(SwitchCase):
         folder = self.home / "Library" / "Application Support" / "Claude-ais-work"
         want = ["open", "-n", "-a", str(self.apps / "Claude.app"), "--args", "--user-data-dir=" + str(folder)]
         self.assertEqual(out.strip(), "Would run: " + " ".join(shlex.quote(a) for a in want))
-        self.assertIn("ps -ww -o pid=,args=", self.calls_text())
+        self.assertIn("ps -x -ww -o pid=,args=\n", self.calls_text())  # -x: Desktop has no terminal
         self.assertEqual(self.open_calls(), [])
         self.env(FAKE_PS_OUT="9 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s" % folder)
         code, out, _ = self.desktop("work", "--dry-run")

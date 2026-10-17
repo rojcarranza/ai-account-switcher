@@ -135,7 +135,7 @@ Order matters; each step says how to check it.
    args have no `--user-data-dir`. `Claude Helper…` processes never match.
    Tests use a `ps` fixture with helpers, Claude Switcher's instance and
    ais instances mixed.
-3. `ps` parsing: one `ps -ww -o pid=,args=` call. The data folder is the
+3. `ps` parsing: one `ps -x -ww -o pid=,args=` call (`-x`: Desktop has no terminal, plain `ps` omits it). The data folder is the
    text after `--user-data-dir=` up to the next ` --` or the end of the line
    (paths contain spaces). Compare it with the account's folder exactly.
 4. `--dry-run`: runs the read-only duplicate check, then prints either the

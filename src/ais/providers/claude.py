@@ -372,7 +372,8 @@ class ClaudeProvider:
         raise AisError(69, "Claude Desktop not found in " + " or ".join(str(r) for r in app_roots))
 
     def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
-        rc, out, warn, err = procs.run(["ps", "-ww", "-o", "pid=,args="], DESKTOP_PS_TIMEOUT, stderr=True)
+        rc, out, warn, err = procs.run(["ps", "-x", "-ww", "-o", "pid=,args="],  # -x: Desktop has no terminal
+                                       DESKTOP_PS_TIMEOUT, stderr=True)
         if warn or rc != 0:
             raise AisError(69, "cannot check for a running Claude Desktop: "
                            + (warn or err.strip() or "ps exited %s" % rc))

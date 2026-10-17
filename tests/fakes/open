@@ -7,5 +7,6 @@ if [ -n "${FAKE_OPEN_FORBID:-}" ]; then
     echo "fake open: must not be called" >&2
     exit 99
 fi
+[ -n "${FAKE_OPEN_SLEEP:-}" ] && sleep "$FAKE_OPEN_SLEEP"
 [ -n "${FAKE_OPEN_ERR:-}" ] && printf '%s\n' "$FAKE_OPEN_ERR" >&2
 exit "${FAKE_OPEN_RC:-0}"
