@@ -333,7 +333,10 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
                            "`ais switch` again." % (_clean(str(folder)), pid))
         ctx.store.snapshot(provider.snapshot_paths(s), s.id)  # warns and returns None when impossible
         previous = _record_last_used(ctx.store, s, acc.name)
-        launched = time.time()
+        try:  # FR-3.14: lines past this offset are the ones the resumed claude appends
+            offset = os.path.getsize(str(s.transcript))
+        except OSError:
+            offset = 0
 
         def on_started() -> None:
             spawned.append(time.monotonic())
@@ -351,7 +354,7 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
             raise
     try:  # claude already ran: its exit code wins over a failed measurement or log write
         ctx.store.log("switch", acc.name, s.id, "exit %d" % rc, round(spawned[0] - ctx.started, 3),
-                      provider.limit_time(s, launched))
+                      provider.limit_time(s, offset))
     except (AisError, OSError) as e:
         guards.print_warnings([getattr(e, "message", str(e))])
     return rc

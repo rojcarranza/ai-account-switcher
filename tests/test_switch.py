@@ -292,21 +292,24 @@ class SwitchTest(SwitchCase):
         self.assertEqual(offset[0], 2000)
         self.assertLess(self.log_lines()[0]["tool_seconds"], 1000)
 
-    def test_limit_time_only_when_session_stopped_at_limit(self):
+    def limit(self, pre, post):
+        """limit_time with pre-launch lines `pre` and lines appended after the launch `post`."""
         from ais.providers.base import Session
-        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+        head = "".join(x + "\n" for x in pre)
+        self.transcript.write_text(head + "".join(x + "\n" for x in post), encoding="utf-8")
+        return ClaudeProvider().limit_time(Session(UUID, self.proj, self.transcript, "", 0.0),
+                                           len(head.encode("utf-8")))
+
+    def test_limit_time_only_when_session_stopped_at_limit(self):
         marker = json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": "2026-10-16T11:00:00Z"})
         normal = json.dumps({"type": "user", "timestamp": "2026-10-16T11:30:00Z"})
         later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
-        s = Session(UUID, self.proj, self.transcript, "", 0.0)
-        self.transcript.write_text("\n".join([marker, normal, later]) + "\n")  # limit hit, then work went on
-        self.assertIsNone(ClaudeProvider().limit_time(s, launch))
-        self.transcript.write_text("\n".join([normal, marker, "not json", later]) + "\n")  # stopped at the limit
-        self.assertEqual(ClaudeProvider().limit_time(s, launch), 3610.0)
+        self.assertIsNone(self.limit([marker, normal], [later]))  # limit hit, then work went on
+        self.assertEqual(self.limit([normal, marker, "not json"], [later]), 3610.0)  # stopped at the limit
+        self.assertIsNone(self.limit([normal, marker], []))  # nothing appended after the launch
+        self.assertIsNone(self.limit([normal], [later]))  # no marker
 
     def test_limit_time_ignores_non_conversation_lines_after_marker(self):
-        from ais.providers.base import Session
-        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
         t = "2026-10-16T11:00:00Z"
         marker = json.dumps({"type": "assistant", "isApiErrorMessage": True, "error": "rate_limit", "timestamp": t})
         noise = [json.dumps(d) for d in (
@@ -316,25 +319,40 @@ class SwitchTest(SwitchCase):
             {"type": "attachment", "timestamp": t},
             {"type": "user", "isMeta": True, "timestamp": t})]
         later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
-        s = Session(UUID, self.proj, self.transcript, "", 0.0)
-        self.transcript.write_text("\n".join([marker] + noise + [later]) + "\n")
-        self.assertEqual(ClaudeProvider().limit_time(s, launch), 3610.0)
+        self.assertEqual(self.limit([marker] + noise, [later]), 3610.0)
         for kind in ("user", "assistant"):  # a conversation line means work went on after the limit
             convo = json.dumps({"type": kind, "timestamp": "2026-10-16T11:30:00Z"})
-            self.transcript.write_text("\n".join([marker, noise[0], convo, later]) + "\n")
-            self.assertIsNone(ClaudeProvider().limit_time(s, launch), kind)
+            self.assertIsNone(self.limit([marker, noise[0], convo], [later]), kind)
+
+    def test_limit_time_uses_file_order_not_timestamps(self):
+        marker = json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": "2026-10-16T11:00:00Z"})
+        early_but_late_stamp = json.dumps({"type": "queue-operation", "timestamp": "2026-10-16T15:00:00Z"})
+        appended = [json.dumps({"type": "system", "timestamp": "2026-10-16T09:00:00Z"}),  # stamped before the marker
+                    json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})]
+        # a pre-launch line stamped hours after the marker neither ends the scan nor counts as appended
+        self.assertEqual(self.limit([early_but_late_stamp, "x" * 10, marker], appended[1:]), 3610.0)
+        # the first appended line is used even when a later appended line is stamped earlier
+        self.assertEqual(self.limit([marker], ["not json", appended[1], appended[0]]), 3610.0)
+        # appended line stamped before the marker: negative -> None
+        self.assertIsNone(self.limit([marker], appended[:1]))
+
+    def test_limit_time_line_straddling_launch_is_neither(self):
+        from ais.providers.base import Session
+        marker = json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": "2026-10-16T11:00:00Z"})
+        half = json.dumps({"type": "user", "timestamp": "2026-10-16T11:30:00Z"})
+        later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
+        head = marker + "\n" + half[:10]  # claude was mid-write at launch
+        self.transcript.write_text(head + half[10:] + "\n" + later + "\n")
+        got = ClaudeProvider().limit_time(Session(UUID, self.proj, self.transcript, "", 0.0), len(head))
+        self.assertEqual(got, 3610.0)
 
     def test_limit_time_odd_fraction_digits(self):
-        from ais.providers.base import Session
-        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
         cases = {"2026-10-16T11:59:00.5Z": 60.5 - 0.5, "2026-10-16T11:59:00.25Z": 60.5 - 0.25,
                  "2026-10-16T11:59:00.1234Z": 60.5 - 0.1234, "2026-10-16T11:59:00.12345Z": 60.5 - 0.12345,
                  "2026-10-16T11:59:00Z": 60.5, "2026-10-16T11:59:00.1234567Z": 60.5 - 0.123456}
         for stamp, want in cases.items():
-            self.transcript.write_text(
-                json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": stamp}) + "\n"
-                + json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:00.5Z"}) + "\n")
-            got = ClaudeProvider().limit_time(Session(UUID, self.proj, self.transcript, "", 0.0), launch)
+            got = self.limit([json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": stamp})],
+                             [json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:00.5Z"})])
             self.assertIsNotNone(got, stamp)
             self.assertAlmostEqual(got, want, places=5, msg=stamp)
 
@@ -426,10 +444,10 @@ class SwitchTest(SwitchCase):
         limited, after = time.time() - 600, time.time() + 600
         marker = json.dumps({"type": "assistant", "isApiErrorMessage": True, "error": "rate_limit",
                              "timestamp": iso(limited)}) + "\n"
-        self.transcript.write_text(
-            line("Main task", self.proj, timestamp=iso(limited - 60)) + marker + "not json\n"
-            + json.dumps({"type": "user", "timestamp": iso(after)}) + "\n"
-            + json.dumps({"type": "user", "timestamp": iso(after + 50)}) + "\n")
+        self.transcript.write_text(line("Main task", self.proj, timestamp=iso(limited - 60)) + marker + "not json\n")
+        # the resumed claude appends the next line
+        self.env(FAKE_CLAUDE_APPEND_TO=str(self.transcript),
+                 FAKE_CLAUDE_APPEND=json.dumps({"type": "user", "timestamp": iso(after)}))
         self.last_used("work")
         code, _, err = self.ais("switch", "work")
         self.assertEqual(code, 0, err)
@@ -439,7 +457,7 @@ class SwitchTest(SwitchCase):
         self.assertLess(entry["tool_seconds"], 30)
         self.assertAlmostEqual(entry["e2e_seconds"], 1200, delta=0.01)
         # no marker before the launch: no end-to-end time
-        self.transcript.write_text(line("Main task", self.proj, timestamp=iso(after)))
+        self.transcript.write_text(line("Main task", self.proj, timestamp=iso(limited)))
         self.ais("switch", "work")
         entry = self.log_lines()[1]
         self.assertIsInstance(entry["tool_seconds"], float)

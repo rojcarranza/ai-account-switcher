@@ -155,6 +155,16 @@ def _parse_time(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp)
 
 
+def _timed_line(raw: bytes) -> Optional[Tuple[dict, float]]:
+    """(object, UTC seconds) for a transcript line with a zoned ISO timestamp, else None."""
+    try:
+        d = json.loads(raw.decode("utf-8", "replace"))
+        t = _parse_time(d["timestamp"])
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return (d, t.timestamp()) if t.tzinfo is not None else None  # a naive time has no defined zone
+
+
 TITLE_MAX = 60
 
 
@@ -252,27 +262,32 @@ class ClaudeProvider:
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
 
-    def limit_time(self, session: Session, launched_at: float) -> Optional[float]:
-        """Seconds from a LIMIT_MARKER line with no later conversation line (user/assistant, not meta)
-        before launched_at to the first line at or after it; None when the session did not stop at the limit."""
+    def limit_time(self, session: Session, launch_offset: int) -> Optional[float]:
+        """FR-3.14 end-to-end seconds: from the LIMIT_MARKER line the session stopped at (no later non-meta
+        user/assistant line before launch_offset) to the first complete line appended at or after launch_offset.
+
+        File order decides, not timestamps: Claude does not write them in order.
+        """
         last = None  # type: Optional[float]
+        end = 0
         try:
-            with open(str(session.transcript), encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    try:
-                        d = json.loads(line)
-                        t = _parse_time(d["timestamp"])
-                        if t.tzinfo is None:  # a naive time has no defined zone: skip it
-                            continue
-                    except (ValueError, TypeError, KeyError, AttributeError):
+            with open(str(session.transcript), "rb") as f:
+                for raw in f:
+                    start, end = end, end + len(raw)
+                    if start < launch_offset < end or not raw.endswith(b"\n"):
+                        continue  # straddles the launch, or still being written
+                    parsed = _timed_line(raw)
+                    if parsed is None:
                         continue
-                    if t.timestamp() >= launched_at:
-                        return None if last is None else t.timestamp() - last
+                    d, t = parsed
+                    if start >= launch_offset:
+                        if last is None:
+                            return None
+                        return t - last if t >= last else None
                     if all(d.get(k) == v for k, v in LIMIT_MARKER.items()):
-                        last = t.timestamp()
+                        last = t
                     elif d.get("type") in ("user", "assistant") and d.get("isMeta") is not True:
                         last = None  # the conversation went on after the limit; system/queue/meta lines do not count
-
         except OSError:
             pass
         return None
