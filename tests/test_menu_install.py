@@ -97,8 +97,9 @@ class MenuInstallTest(MenuInstallCase):
         shutil.copy(str(TESTS / "fakes" / "claude"), str(bad / "claude"))
         shutil.copy(str(TESTS / "fakes" / "defaults"), str(bad / "defaults"))
         self.env(PATH=str(bad))
-        code, _, _ = self.install()
+        code, _, err = self.install()
         self.assertEqual(code, 78)
+        self.assertIn("cannot build the plugin PATH", err)
         self.assertFalse(self.target.exists())
 
     def test_install_refuses_symlink_target_73(self):
@@ -116,6 +117,45 @@ class MenuInstallTest(MenuInstallCase):
         self.assertEqual(code, 0)
         self.assertIn("replace", out)
         self.assertEqual(self.target.read_text(), self.body())
+
+    def test_install_expands_tilde_plugin_folder(self):
+        self.env(FAKE_SWIFTBAR_DIR="~/plugins")
+        self.assertEqual(self.install()[0], 0)
+        self.assertTrue(self.target.exists())
+
+    def test_install_plugin_folder_missing_or_relative_71(self):
+        for d in (str(self.home / "gone"), "plugins"):
+            self.env(FAKE_SWIFTBAR_DIR=d)
+            self.assertEqual(self.install()[0], 71, d)
+        self.assertEqual(list(self.plugins.iterdir()), [])
+
+    def test_install_corrupt_state_78_before_writing(self):
+        (self.ais_dir / "state.json").write_text("{nope")
+        for dry in (False, True):
+            self.assertEqual(self.install(dry_run=dry)[0], 78)
+        self.assertFalse(self.target.exists())
+
+    def test_install_relative_path_entry_gives_absolute_claude_dir(self):
+        rel = self.home / "rel"
+        rel.mkdir()
+        shutil.copy(str(TESTS / "fakes" / "claude"), str(rel / "claude"))
+        shutil.copy(str(TESTS / "fakes" / "defaults"), str(rel / "defaults"))
+        os.chdir(str(self.home))
+        self.env(PATH="rel")
+        self.assertEqual(self.install()[0], 0)
+        self.assertIn(":%s:/usr/bin" % os.path.realpath(str(self.home / "rel")), self.target.read_text())
+
+    def test_install_warns_about_other_recorded_plugin_and_missing_ais(self):
+        old = self.home / "old.sh"
+        old.write_text("x")
+        (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(old)}))
+        code, _, err = self.install()
+        self.assertEqual(code, 0)
+        self.assertIn("state.json also records %s" % old, err)
+        self.assertIn("missing; the menu finds no ais", err)
+        (self.home / ".local" / "bin").mkdir(parents=True)
+        (self.home / ".local" / "bin" / "ais").write_text("x")
+        self.assertNotIn("finds no ais", self.install()[2])
 
     def test_install_dry_run_writes_nothing_asks_nothing(self):
         code, out, err = self.install(dry_run=True)
@@ -161,6 +201,18 @@ class MenuUninstallTest(MenuInstallCase):
         self.assertIn("ais.1m.sh", err)
         self.assertEqual(other.read_text(), "keep")
 
+    def test_uninstall_recorded_file_gone_clears_state(self):
+        self.installed()
+        self.target.unlink()
+        code, out, _ = self.uninstall(dry_run=True)
+        self.assertEqual(code, 0)
+        self.assertIn("is already gone", out)
+        self.assertIn("menu_plugin", self.state())
+        code, out, _ = self.uninstall()
+        self.assertEqual(code, 0)
+        self.assertIn("is already gone", out)
+        self.assertNotIn("menu_plugin", self.state())
+
     def test_uninstall_dry_run_removes_nothing(self):
         self.installed()
         code, out, err = self.uninstall(dry_run=True)
@@ -180,6 +232,14 @@ class MenuCliTest(MenuInstallCase):
             self.assertEqual(code, 0, err)
         self.assertEqual(list(self.plugins.iterdir()), [])
         self.assertEqual(Path(self.calls).read_text(), "defaults read com.ameba.SwiftBar PluginDirectory\n")
+
+    def test_menu_uninstall_works_without_config(self):
+        (self.ais_dir / "config.json").unlink()
+        code, out, err = self.ais("menu", "uninstall", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("No SwiftBar plugin recorded.", out)
+        (self.ais_dir / "config.json").write_text("{broken")
+        self.assertEqual(self.ais("menu", "uninstall", "--dry-run")[0], 0)
 
     def test_menu_alone_lists_commands(self):
         code, _, err = self.ais("menu")

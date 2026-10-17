@@ -799,7 +799,7 @@ def _swiftbar_folder(ctx: Context) -> str:
         folder = out.strip() if rc == 0 else ""
         if folder.startswith("~/"):
             folder = str(home / folder[2:])
-    if not folder or not os.path.isdir(folder):
+    if not folder or not os.path.isabs(folder) or not os.path.isdir(folder):
         raise AisError(EXIT_SWIFTBAR, "SwiftBar is not installed or has no plugin folder; ais never installs it.\n"
                        "Install it with: brew install --cask swiftbar\n"
                        "then open SwiftBar and choose a plugin folder, and run this again.")
@@ -814,11 +814,12 @@ def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     found = shutil.which(provider.start_command([])[0], path=ctx.env.get("PATH", ""))
     if not found:
         raise AisError(EXIT_MISSING_TOOL, provider.install_hint)
-    claude_dir = os.path.dirname(found)
+    claude_dir = os.path.dirname(os.path.abspath(found))  # which() keeps a relative PATH entry relative
     for part in (str(home), claude_dir):
         if _PATH_UNSAFE.search(part):
             raise AisError(EXIT_CONFIG, "cannot build the plugin PATH: %r has a quote, $, backtick, backslash, "
                            "colon or control character" % part)
+    store.read_json("state.json")  # a corrupt state.json fails 78 now, not after the plugin is written
     target = os.path.join(folder, PLUGIN_NAME)
     exists = os.path.lexists(target)
     if exists and not stat.S_ISREG(os.lstat(target).st_mode):  # never follow a symlink or replace a folder
@@ -858,7 +859,16 @@ def cmd_menu_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[s
     """FR-4.7: remove only the recorded ais.1m.sh after a yes, and forget it in state.json."""
     plugin = _recorded_plugin(ctx.store)
     if plugin is None:
-        print("No SwiftBar plugin recorded.")
+        try:
+            recorded = ctx.store.read_json("state.json").get("menu_plugin")
+        except AisError:
+            recorded = None  # _recorded_plugin already warned
+        if isinstance(recorded, str) and os.path.isabs(recorded) and not os.path.lexists(recorded):
+            print("The recorded SwiftBar plugin %s is already gone." % recorded)
+            if not dry_run:
+                ctx.store.update_json("state.json", lambda d: {k: v for k, v in d.items() if k != "menu_plugin"})
+        else:
+            print("No SwiftBar plugin recorded.")
         return 0
     if plugin.name != PLUGIN_NAME:  # untrusted state: never remove another file
         print("ais: warning: state.json records %s, which is not named %s; remove it by hand" % (plugin, PLUGIN_NAME),

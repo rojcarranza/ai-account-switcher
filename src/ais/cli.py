@@ -104,7 +104,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise AisError(EXIT_USAGE, "a menu command is required: render, install, uninstall")
             if ns.menu_command in ("install", "uninstall"):
                 fn = core.cmd_menu_install if ns.menu_command == "install" else core.cmd_menu_uninstall
-                return fn(_context(started, cwd_optional=True), ns.dry_run)
+                try:
+                    ctx = _context(started, cwd_optional=True)
+                except (AisError, OSError):
+                    if ns.menu_command == "install":
+                        raise
+                    ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)  # uninstall needs no account
+                return fn(ctx, ns.dry_run)
             menu.cmd_menu_render(lambda: _context(started, cwd_optional=True), os.path.abspath(sys.argv[0]), started)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
