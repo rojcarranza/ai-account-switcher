@@ -13,7 +13,7 @@ class Cache:
         self._seen = {}  # type: Dict[str, dict]
 
     def lookup(self, path: str, mtime: float, size: int) -> Optional[Tuple[str, str]]:
-        e = self._old.get(path)
+        e = self._seen.get(path) or self._old.get(path)
         if isinstance(e, dict) and e.get("mtime") == mtime and e.get("size") == size \
                 and isinstance(e.get("folder"), str) and isinstance(e.get("title"), str):
             self._seen[path] = e

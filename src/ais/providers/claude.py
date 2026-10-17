@@ -197,11 +197,11 @@ class ClaudeProvider:
                 hit = cache.lookup(key, st.st_mtime, st.st_size)
                 if hit is None:
                     folder, title = _read_transcript(path)
-                    if folder is None:
-                        continue
-                    cache.put(key, st.st_mtime, st.st_size, folder, title)
+                    cache.put(key, st.st_mtime, st.st_size, folder or "", title)  # "" = no cwd line
                 else:
                     folder, title = hit
+                if not folder:
+                    continue
             except (ValueError, OSError):  # not a UUID name, or the file vanished or is unreadable
                 continue
             found.append(Session(path.stem, Path(folder), path, title, st.st_mtime))

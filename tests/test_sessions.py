@@ -2,8 +2,10 @@ import os
 import shutil
 import unicodedata
 from pathlib import Path
+from unittest import mock
 
 from ais.core import Cache
+from ais.providers import claude
 from ais.providers.claude import ClaudeProvider
 from ais.store import Store
 from tests.helpers import TESTS, TempHomeCase
@@ -75,3 +77,27 @@ class SessionsTest(TempHomeCase):
         self.addCleanup(self.file_a.chmod, 0o600)
         s = self.p.find_session(A, Cache(Store(self.home)))
         self.assertEqual(s.title, "Fix the login bug")
+
+    def _no_cwd_file(self):
+        f = self.projects / "p4" / "44444444-4444-4444-8444-444444444444.jsonl"
+        f.parent.mkdir()
+        f.write_text('{"type": "last-prompt"}\n', encoding="utf-8")
+        return f
+
+    def test_no_cwd_file_is_cached_and_not_reread(self):
+        self._no_cwd_file()
+        self.p.recent_sessions(5, self.cache)
+        with mock.patch("ais.providers.claude._read_transcript", wraps=claude._read_transcript) as rd:
+            self.assertEqual(len(self.p.recent_sessions(5, Cache(Store(self.home)))), 3)
+        rd.assert_not_called()
+
+    def test_same_cache_reused_does_not_reparse(self):
+        self.p.recent_sessions(5, self.cache)
+        with mock.patch("ais.providers.claude._read_transcript", wraps=claude._read_transcript) as rd:
+            self.p.recent_sessions(5, self.cache)
+        rd.assert_not_called()
+
+    def test_title_cut_to_60_characters(self):
+        self.file_c.write_text('{"type": "user", "message": {"content": "%s"}, "cwd": "%s"}\n'
+                               % ("x" * 100, self.home / "other"), encoding="utf-8")
+        self.assertEqual(self.p.find_session(C, self.cache).title, "x" * 60)
