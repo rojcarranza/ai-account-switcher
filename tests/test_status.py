@@ -111,3 +111,25 @@ class StatusTest(SwitchCase):
         self.assertIsNone(_iso_utc(1e30))
         self.assertIsNone(_iso_utc(float("nan")))
         self.assertEqual(_iso_utc(0), "1970-01-01T00:00:00Z")
+
+    def test_one_transcript_scan_per_gather(self):
+        from ais.providers.claude import ClaudeProvider
+        real = ClaudeProvider._scan
+        with mock.patch.object(ClaudeProvider, "_scan", autospec=True, side_effect=real) as scan:
+            _, out, _ = self.ais("status", "--json")
+        d = json.loads(out)
+        self.assertEqual(scan.call_count, 1)
+        self.assertEqual(d["session"]["id"], UUID)
+        self.assertEqual(len(d["recent"]), 1)
+
+    def test_unreadable_cache_json_still_prints(self):
+        self.ais("status")  # creates cache.json
+        cache = self.ais_dir / "cache.json"
+        self.assertTrue(cache.exists())
+        cache.chmod(0)
+        self.addCleanup(cache.chmod, 0o600)
+        code, out, _ = self.ais("status")
+        self.assertEqual(code, 0)
+        self.assertIn("credential present: yes", out)
+        self.assertIn("session %s" % UUID, out)
+        self.assertIn("warning: ", out)

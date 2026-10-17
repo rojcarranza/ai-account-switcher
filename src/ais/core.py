@@ -48,7 +48,14 @@ def credential_state(store: Store, provider: Any, account: Account, cache_only: 
 
     With `warnings`, a failed cache write is appended there instead of raised.
     """
-    entries = _read_cache(store).get("credentials", {})
+    try:
+        cached = _read_cache(store)
+    except AisError as e:
+        if warnings is None:
+            raise
+        warnings.append(e.message)
+        cached = {}
+    entries = cached.get("credentials", {})
     e = entries.get(account.name) if isinstance(entries, dict) else None
     if isinstance(e, dict) and e.get("cred_dir") == account.cred_dir \
             and isinstance(e.get("at"), (int, float)) and 0 <= now() - e["at"] < CREDENTIAL_TTL \
@@ -394,6 +401,13 @@ def gather_status(ctx: Context, cache_only: bool) -> dict:
                          "credential_source": source, "credential_error": error})
 
     class StatusCache(Cache):
+        def __init__(self, store: Store):
+            try:
+                Cache.__init__(self, store)
+            except AisError as e:  # unreadable cache.json: start empty
+                extra.append(e.message)
+                self.store, self._old, self._seen, self._dirty = store, {}, {}, False
+
         def save(self) -> None:
             try:
                 Cache.save(self)
@@ -401,8 +415,9 @@ def gather_status(ctx: Context, cache_only: bool) -> dict:
                 extra.append("cannot write cache.json: %s" % getattr(e, "message", e))
 
     cache = StatusCache(ctx.store)
-    newest = provider.newest_session(ctx.cwd, cache)
-    recent = provider.recent_sessions(RECENT_COUNT, cache)
+    everything = provider.recent_sessions(sys.maxsize, cache)  # one scan serves both lists
+    newest = next((s for s in everything if provider.in_folder(s, ctx.cwd)), None)
+    recent = everything[:RECENT_COUNT]
     found = _open_pids(provider)  # one process scan serves every open check
     try:  # read once; a corrupt state.json leaves every last-used unknown
         sessions = ctx.store.read_json("state.json").get("sessions") or {}
