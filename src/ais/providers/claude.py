@@ -325,7 +325,11 @@ class ClaudeProvider:
             env[SLOT_ENV] = account.cred_dir  # exactly as stored: the string is the Keychain hash input
         return env, warnings
 
-    def credential_removal_hint(self, account: Account) -> Optional[str]:
+    def credential_removal_hint(self, account: Optional[Account]) -> Optional[str]:
+        if account is None:
+            return ("each extra account has a Keychain item named '%s-<8 hex digits of a hash of its credDir>'; "
+                    "delete it in Keychain Access, or with `security delete-generic-password -s '<that name>'`"
+                    % keychain_service(None))
         if account.is_default:
             return None
         return "security delete-generic-password -s '%s'" % keychain_service(account.cred_dir)

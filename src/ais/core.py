@@ -672,6 +672,9 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
             steps.append("Keychain item of %s: %s" % (a.label, hint))
     if not extras:
         steps.append(str(home / provider.cred_dir_root / "<account>") + ": each extra account's folder (kept)")
+        hint = provider.credential_removal_hint(None)
+        if hint:
+            steps.append("Keychain: " + hint)
     steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
                  "and nothing else in ~/.local/bin needs it (claude itself lives there)")
 

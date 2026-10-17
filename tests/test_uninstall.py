@@ -204,6 +204,8 @@ class UninstallTest(TempHomeCase):
         self.assertIn("Nothing to remove", out)
         self.assertIn("~/.local/bin/ais.prev", out)
         self.assertIn(str(self.home / ".claude-accounts" / "<account>"), out)  # no config: generic
+        self.assertIn("Keychain: ", out)
+        self.assertIn("Claude Code-credentials-", out)
 
     def test_uninstall_dry_run_lists_and_changes_nothing(self):
         self.add_snapshots()

@@ -29,4 +29,6 @@ class FakeProvider:
         return []
 
     def credential_removal_hint(self, account) -> Optional[str]:
+        if account is None:
+            return "fake remove <account>"
         return None if account.is_default else "fake remove %s" % account.name
