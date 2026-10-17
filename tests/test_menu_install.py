@@ -7,7 +7,11 @@ import shutil
 import stat
 from pathlib import Path
 
+from unittest import mock
+
 from ais import cli, core
+from ais.errors import AisError
+from ais.store import Store
 from tests.helpers import TESTS
 from tests.test_switch import SwitchCase
 
@@ -157,6 +161,20 @@ class MenuInstallTest(MenuInstallCase):
         (self.home / ".local" / "bin" / "ais").write_text("x")
         self.assertNotIn("finds no ais", self.install()[2])
 
+    def test_install_dry_run_shows_also_records_warning(self):
+        old = self.home / "old.sh"
+        old.write_text("x")
+        (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(old)}))
+        code, _, err = self.install(dry_run=True)
+        self.assertEqual(code, 0)
+        self.assertIn("state.json also records %s" % old, err)
+
+    def test_install_state_write_failure_leaves_no_plugin(self):
+        with mock.patch.object(Store, "update_json", side_effect=AisError(73, "disk full")):
+            code, _, err = self.install()
+        self.assertEqual(code, 73)
+        self.assertEqual(list(self.plugins.iterdir()), [])
+
     def test_install_dry_run_writes_nothing_asks_nothing(self):
         code, out, err = self.install(dry_run=True)
         self.assertEqual(code, 0)
@@ -212,6 +230,14 @@ class MenuUninstallTest(MenuInstallCase):
         self.assertEqual(code, 0)
         self.assertIn("is already gone", out)
         self.assertNotIn("menu_plugin", self.state())
+
+    def test_uninstall_folder_record_only_warns(self):
+        (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(self.plugins)}))
+        code, out, err = self.uninstall()
+        self.assertEqual(code, 0)
+        self.assertIn("not an absolute file path", err)
+        self.assertNotIn("No SwiftBar plugin recorded", out)
+        self.assertTrue(self.plugins.is_dir())
 
     def test_uninstall_dry_run_removes_nothing(self):
         self.installed()

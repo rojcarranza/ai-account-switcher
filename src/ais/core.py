@@ -683,9 +683,10 @@ def _yes(answers: Optional[Iterable[str]]) -> Callable[[str], bool]:
     return yes
 
 
-def _recorded_plugin(store: Store) -> Optional[Path]:
-    """The SwiftBar plugin state.json records (an absolute file or symlink that exists), else None with a warning."""
-    plugin = None  # type: Optional[Path]
+def _plugin_record(store: Store) -> Tuple[Optional[Path], Optional[str], bool]:
+    """(plugin, gone, warned): the recorded plugin if it is an absolute existing file or symlink; `gone` is a
+    recorded absolute path that no longer exists; `warned` says a bad record already printed a warning."""
+    plugin, gone, warned = None, None, False  # type: Optional[Path], Optional[str], bool
     try:
         recorded = store.read_json("state.json").get("menu_plugin")
         if recorded is not None and not isinstance(recorded, str):
@@ -695,12 +696,20 @@ def _recorded_plugin(store: Store) -> Optional[Path]:
             if rp.is_absolute() and (rp.is_symlink() or rp.is_file()):
                 plugin = rp
             else:  # untrusted data: never delete a folder or a relative path
+                warned = True
                 print("ais: warning: state.json menu_plugin %r is not an absolute file path; "
                       "remove the plugin by hand" % recorded, file=sys.stderr)
+        elif recorded and os.path.isabs(recorded):
+            gone = recorded
     except AisError:
+        warned = True
         print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
               "must be removed by hand", file=sys.stderr)
-    return plugin
+    return plugin, gone, warned
+
+
+def _recorded_plugin(store: Store) -> Optional[Path]:
+    return _plugin_record(store)[0]
 
 
 def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
@@ -829,14 +838,16 @@ def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     if not (home / ".local" / "bin" / "ais").is_file():
         print("ais: warning: %s is missing; the menu finds no ais until `make install`"
               % (home / ".local" / "bin" / "ais"), file=sys.stderr)
-    if dry_run:
-        return 0
     prev = _recorded_plugin(store)
     if prev is not None and str(prev) != target:
         print("ais: warning: state.json also records %s; remove it by hand" % prev, file=sys.stderr)
+    if dry_run:
+        return 0
     if not _yes(answers)("Write this file? [y/N] "):
         print("Nothing written.", file=sys.stderr)
         return EXIT_DECLINED
+    # record first: a failing state.json write then leaves no unrecorded plugin (a stale record is cleared by uninstall)
+    store.update_json("state.json", lambda d: dict(d, menu_plugin=target))
     tmp = None
     try:
         fd, tmp = tempfile.mkstemp(dir=folder, prefix="." + PLUGIN_NAME + ".")
@@ -850,24 +861,19 @@ def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     finally:
         if tmp is not None:
             _unlink(Path(tmp))
-    store.update_json("state.json", lambda d: dict(d, menu_plugin=target))
     print("Wrote " + target)
     return 0
 
 
 def cmd_menu_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
     """FR-4.7: remove only the recorded ais.1m.sh after a yes, and forget it in state.json."""
-    plugin = _recorded_plugin(ctx.store)
+    plugin, gone, warned = _plugin_record(ctx.store)
     if plugin is None:
-        try:
-            recorded = ctx.store.read_json("state.json").get("menu_plugin")
-        except AisError:
-            recorded = None  # _recorded_plugin already warned
-        if isinstance(recorded, str) and os.path.isabs(recorded) and not os.path.lexists(recorded):
-            print("The recorded SwiftBar plugin %s is already gone." % recorded)
+        if gone is not None:
+            print("The recorded SwiftBar plugin %s is already gone." % gone)
             if not dry_run:
                 ctx.store.update_json("state.json", lambda d: {k: v for k, v in d.items() if k != "menu_plugin"})
-        else:
+        elif not warned:
             print("No SwiftBar plugin recorded.")
         return 0
     if plugin.name != PLUGIN_NAME:  # untrusted state: never remove another file
