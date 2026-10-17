@@ -6,6 +6,7 @@ from ais.providers.claude import ClaudeProvider
 from ais.store import EXIT_CONFIG
 
 REGISTRY = {"claude": ClaudeProvider}  # type: Dict[str, type]
+DEFAULT_PROVIDER = "claude"  # what `ais setup` writes into new accounts
 
 
 def get(name: str) -> Provider:
