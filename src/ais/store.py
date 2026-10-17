@@ -2,6 +2,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -23,10 +24,25 @@ SNAPSHOT_STAMP = "%Y%m%dT%H%M%SZ"
 CP_TIMEOUT = 30
 
 
+EXIT_USAGE = 64
+SNAPSHOT_NAME = re.compile(r"^\d{8}T\d{6}Z-")
+
+
 def _size(path: Path) -> int:
-    if path.is_file():
-        return path.stat().st_size
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    # lstat: a symlink counts as itself, never as what it points at
+    if not path.is_dir() or path.is_symlink():
+        return path.lstat().st_size
+    return sum(os.lstat(os.path.join(r, f)).st_size for r, _, fs in os.walk(str(path)) for f in fs)
+
+
+def _restrict(root: Path) -> None:
+    # FR-2.6: cp -c and copy2 keep source modes (0644); snapshots are private
+    for r, dirs, files in os.walk(str(root)):
+        for n in dirs + files:
+            q = os.path.join(r, n)
+            if not os.path.islink(q):
+                os.chmod(q, 0o700 if os.path.isdir(q) else 0o600)
+    os.chmod(str(root), 0o700)
 
 
 def _entry_time(path: Path) -> float:
@@ -164,6 +180,8 @@ class Store:
     def snapshot(self, paths: List[Path], session_id: str,
                  now: Callable[[], float] = time.time) -> Optional[Path]:
         """Copy paths into snapshots/<UTC stamp>-<id>/ (APFS clone, else plain copy); None when impossible."""
+        if not session_id or session_id in (".", "..") or "/" in session_id or "\0" in session_id:
+            raise AisError(EXIT_USAGE, "invalid session id %r" % session_id)
         root = self.dir / "snapshots"
         stamp = datetime.fromtimestamp(now(), timezone.utc).strftime(SNAPSHOT_STAMP)
         target = None  # type: Optional[Path]
@@ -183,6 +201,7 @@ class Store:
             cloned = all(self._clone(p, target) for p in paths)
             if not cloned:
                 self._plain_copy(paths, target)
+            _restrict(target)
         except OSError as e:
             if target is not None:
                 shutil.rmtree(str(target), ignore_errors=True)
@@ -208,14 +227,14 @@ class Store:
             raise _NoSpace()
         for p in paths:
             if p.is_dir():
-                shutil.copytree(str(p), str(target / p.name))
+                shutil.copytree(str(p), str(target / p.name), symlinks=True)
             else:
-                shutil.copy2(str(p), str(target / p.name))
+                shutil.copy2(str(p), str(target / p.name), follow_symlinks=False)
 
     @staticmethod
     def _prune_snapshots(root: Path, keep: Path, now: float) -> None:
         try:
-            entries = sorted((e for e in root.iterdir() if e.is_dir()), key=_entry_time)
+            entries = sorted((e for e in root.iterdir() if SNAPSHOT_NAME.match(e.name) and e.is_dir()), key=_entry_time)
             sizes = {e: _size(e) for e in entries}
             for e in list(entries):
                 if e != keep and now - _entry_time(e) > SNAPSHOT_MAX_AGE:
