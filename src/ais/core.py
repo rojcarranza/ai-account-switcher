@@ -1,4 +1,5 @@
 import contextlib
+import json
 import os
 import re
 import shlex
@@ -358,3 +359,58 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
     except (AisError, OSError) as e:
         guards.print_warnings([getattr(e, "message", str(e))])
     return rc
+
+
+RECENT_COUNT = 5
+
+
+def gather_status(ctx: Context, cache_only: bool) -> dict:
+    """FR-4.6 dict (plus credential source and error); read-only apart from the credential cache."""
+    provider = ctx.provider_for(ctx.config.accounts[ctx.config.default])
+    accounts = []
+    for acc in ctx.config.accounts.values():
+        state, source, error = credential_state(ctx.store, ctx.provider_for(acc), acc, cache_only, ctx.env)
+        accounts.append({"name": acc.name, "label": acc.label, "credential_present": state,
+                         "credential_source": source, "credential_error": error})
+    cache = Cache(ctx.store)
+    newest = provider.newest_session(ctx.cwd, cache)
+    recent = provider.recent_sessions(RECENT_COUNT, cache)
+    found = _open_pids(provider)  # one process scan serves every open check
+
+    def is_open(s: Session) -> bool:
+        return provider.open_session_pid(s, found) is not None
+
+    messages = provider.self_check()
+    return {
+        "accounts": accounts,
+        "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest),
+                                                "open": is_open(newest)},
+        "recent": [{"id": s.id, "folder": str(s.folder), "title": s.title, "last_used": _last_used(ctx, s),
+                    "open": is_open(s),
+                    "modified": datetime.fromtimestamp(s.modified, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                   for s in recent],
+        "self_check": {"ok": not messages, "messages": messages},
+    }
+
+
+def cmd_status(ctx: Context, as_json: bool) -> int:
+    d = gather_status(ctx, False)
+    if as_json:
+        print(json.dumps(d, indent=2))
+        return 0
+    for a in d["accounts"]:
+        line = "  %s (%s): credential present: %s" % (a["name"], _clean(a["label"]), a["credential_present"])
+        if a["credential_source"] == "keychain" and a["credential_present"] == "yes":
+            line += " (Keychain item exists; not a validity check)"
+        if a["credential_present"] == "unknown" and a["credential_error"]:
+            line += " — " + _clean(a["credential_error"])
+        print(line)
+    s = d["session"]
+    print("no session in this folder" if s is None else "session %s: last used %s, %s" % (
+        s["id"], s["last_used"] or "unknown", "open" if s["open"] else "not open"))
+    for m in d["self_check"]["messages"]:
+        print("warning: " + _clean(m))
+    if d["self_check"]["ok"]:
+        print("self-check: ok")
+    print("ais cannot see which account each slot is signed in to; sign in to the matching account in each")
+    return 0
