@@ -1,4 +1,5 @@
 import os
+import time
 from unittest import mock
 
 from ais.accounts import Account
@@ -70,6 +71,21 @@ class CredentialsTest(TempHomeCase):
             # keychain results are not cached
             credential_state(self.store, self.p, WORK, False, self.env)
         self.assertNotIn("work", self.store.read_json("cache.json").get("credentials", {}))
+
+    def test_hung_auth_status_leaves_no_child_behind(self):
+        child = self.home / "child.pid"
+        self.env["FAKE_CLAUDE_AUTH_SLEEP"] = "30"
+        self.env["FAKE_CLAUDE_AUTH_CHILD_FILE"] = str(child)
+        with mock.patch.object(claude, "AUTH_TIMEOUT", 0.5):
+            self.assertEqual(self.p.has_credential(WORK, self.env), ("yes", "keychain", ""))
+        pid = int(child.read_text())
+        for _ in range(20):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.1)
+        self.fail("auth status child still running")
 
     def test_logged_out_exit_2_falls_back(self):
         self.env["FAKE_CLAUDE_AUTH_RC"] = "2"

@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from ais import procs
 from ais.accounts import Account
 from ais.providers.base import Session
 
@@ -256,32 +257,27 @@ class ClaudeProvider:
     def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""
         argv = ["security", "find-generic-password", "-s", keychain_service(account.cred_dir)]
-        try:
-            r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, timeout=KEYCHAIN_TIMEOUT)
-            rc = r.returncode
-        except (OSError, subprocess.TimeoutExpired) as e:
-            return "unknown", "keychain", str(e).splitlines()[0] if str(e) else type(e).__name__
+        rc, _, warn, err = procs.run(argv, KEYCHAIN_TIMEOUT, stderr=True)
+        if warn:
+            return "unknown", "keychain", warn.splitlines()[0]
         if rc == 0:
             return "yes", "keychain", ""
         if rc == KEYCHAIN_NOT_FOUND:
             return "no", "keychain", ""
-        lines = r.stderr.decode("utf-8", "replace").splitlines()
+        lines = err.splitlines()
         return "unknown", "keychain", "security exited %d%s" % (rc, ": " + lines[0] if lines else "")
 
     def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
         env, _ = self.env_for(account, base_env)
-        try:
-            r = subprocess.run(["claude", "auth", "status", "--json"], env=env,
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, timeout=AUTH_TIMEOUT)
-            if r.returncode == 0:
-                data = json.loads(r.stdout.decode("utf-8", "replace"))
-                # only loggedIn: email/org are not per slot (spike (h))
-                if isinstance(data, dict) and isinstance(data.get("loggedIn"), bool):
-                    return ("yes" if data["loggedIn"] else "no"), "auth status", ""
-        except (OSError, subprocess.TimeoutExpired, ValueError):
-            pass
+        rc, out, warn, _ = procs.run(["claude", "auth", "status", "--json"], AUTH_TIMEOUT, env)
+        if not warn and rc == 0:
+            try:
+                data = json.loads(out)
+            except ValueError:
+                data = None
+            # only loggedIn: email/org are not per slot (spike (h))
+            if isinstance(data, dict) and isinstance(data.get("loggedIn"), bool):
+                return ("yes" if data["loggedIn"] else "no"), "auth status", ""
         return self.keychain_credential(account)
 
     def billing_risks(self, env: Mapping[str, str], folder: Path, args: Sequence[str],
