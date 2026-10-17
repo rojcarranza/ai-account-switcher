@@ -8,6 +8,8 @@ from ais.store import Store
 from tests.helpers import TempHomeCase
 
 PROVIDERS = ("claude",)
+CRED_DIR_CASES = ("relative", "tilde", "trailing slash", "outside home", "dotdot", "dot",
+                  "double slash", "leading double slash")
 
 
 class AccountsTest(TempHomeCase):
@@ -82,6 +84,20 @@ class AccountsTest(TempHomeCase):
         c = self.load(self.work(credDir=str(self.home)))
         self.assertEqual(c.accounts["work"].cred_dir, str(self.home))
 
+    def test_shared_cred_dir_rejected(self):
+        c = self.cfg(accounts=dict(self.cfg()["accounts"], third={
+            "label": "T", "provider": "claude", "credDir": str(self.home / ".claude-work")}))
+        for label, other in (("same string", None), ("same realpath", "link")):
+            with self.subTest(label):
+                if other:
+                    (self.home / "link").symlink_to(self.home / ".claude-work")
+                    c["accounts"]["third"]["credDir"] = str(self.home / "link")
+                with self.assertRaises(AisError) as cm:
+                    self.load(c)
+                self.assertEqual(cm.exception.code, 78)
+                for n in ("work", "third"):
+                    self.assertIn(n, cm.exception.message)
+
     def test_config_errors_exit_78(self):
         h = str(self.home)
         no_version = self.cfg()
@@ -101,6 +117,13 @@ class AccountsTest(TempHomeCase):
             ("id with trailing newline", self.cfg(accounts={
                 "work\n": {"label": "x", "provider": "claude", "credDir": h + "/w"},
                 "personal": {"label": "x", "provider": "claude", "credDir": None}}), "work", "^[a-z]"),
+            ("dotdot", self.work(credDir=h + "/a/../b"), "work", "canonical"),
+            ("dot", self.work(credDir=h + "/./b"), "work", "canonical"),
+            ("double slash", self.work(credDir=h + "//b"), "work", "canonical"),
+            ("leading double slash", self.work(credDir="//" + h.lstrip("/") + "/b"), "work", "canonical"),
+            ("float version", self.cfg(version=1.0), None, "version"),
+            ("ack non-str value", self.cfg(cross_account_ack={"a->b": 5}), None, "cross_account_ack"),
+            ("ack list value", self.cfg(cross_account_ack={"a->b": ["x"]}), None, "cross_account_ack"),
             ("unknown version", self.cfg(version=2), None, "version"),
             ("missing version", no_version, None, "version"),
             ("broken json", "{not json", None, "invalid JSON"),
@@ -128,4 +151,6 @@ class AccountsTest(TempHomeCase):
                 self.assertEqual(cm.exception.code, 78)
                 if who:
                     self.assertIn(who, cm.exception.message)
+                if label in CRED_DIR_CASES:
+                    self.assertIn("config.json", cm.exception.message)
                 self.assertIn(rule, cm.exception.message)
