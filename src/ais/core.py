@@ -703,23 +703,16 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         return EXIT_DECLINED
     keep = snaps_here and not yes("Also delete the saved snapshots in %s? [y/N] " % snaps)
     if plugin is not None:
-        try:
-            os.unlink(str(plugin))
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (plugin, e))
-    for e in entries:
-        if not (keep and e == snaps):
-            _remove(e)
+        _remove(plugin)  # checked above: a file or symlink, so unlinked
     if keep:
-        print("Kept %s (%d bytes)" % (snaps, _size(snaps)))
+        for e in entries:
+            if e != snaps:
+                _remove(e)
+        if snaps.is_symlink():
+            print("Kept %s (a symlink to %s)" % (snaps, os.readlink(str(snaps))))
+        else:
+            print("Kept %s (%d bytes)" % (snaps, _size(snaps)))
     else:
-        try:
-            store.dir.rmdir()  # only when empty; a symlink is already gone
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
+        _remove(store.dir)
     manual()
     return 0

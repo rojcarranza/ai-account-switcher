@@ -44,12 +44,14 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
-def _context(started: float, config: Optional[Config] = None) -> core.Context:
+def _context(started: float, config: Optional[Config] = None, cwd_optional: bool = False) -> core.Context:
     store = Store(Path.home())
     try:
         cwd = Path.cwd()
     except OSError:
-        raise AisError(66, "the current folder no longer exists")
+        if not cwd_optional:
+            raise AisError(66, "the current folder no longer exists")
+        cwd = Path.home()  # uninstall never reads the cwd
     return core.Context(store, config or load_config(store, providers.REGISTRY),
                         lambda a: providers.get(a.provider), dict(os.environ), cwd, started=started)
 
@@ -79,9 +81,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             return core.cmd_setup(_context(started, Config({}, "", {}, False)), ns.dry_run)
         if ns.command == "uninstall":  # works with a broken or missing config
             try:
-                ctx = _context(started)
-            except (AisError, OSError):  # 3.9's Path.exists() raises on an unreadable folder
-                ctx = _context(started, Config({}, "", {}, False))
+                ctx = _context(started, cwd_optional=True)
+            except (AisError, OSError) as e:  # 3.9's Path.exists() raises on an unreadable folder
+                if os.path.lexists(str(Store(Path.home()).dir / "config.json")):  # missing = no warning
+                    print("ais: warning: %s; the manual steps below are generic"
+                          % (e.message if isinstance(e, AisError) else e), file=sys.stderr)
+                ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)
             return core.cmd_uninstall(ctx, ns.dry_run)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)

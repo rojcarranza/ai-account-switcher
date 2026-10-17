@@ -217,3 +217,36 @@ class UninstallTest(TempHomeCase):
         self.assertIn(str(self.plugin), out)
         self.assertIn("~/.local/bin/ais", out)
         self.assertEqual(snapshot(self.home), before)
+
+    def test_uninstall_warns_on_broken_config_not_missing(self):
+        (self.ais_dir / "config.json").write_text("{not json")
+        code, out, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("ais: warning: ", err)
+        self.assertIn("; the manual steps below are generic", err)
+        self.assertIn(str(self.home / ".claude-accounts" / "<account>"), out)
+        (self.ais_dir / "config.json").unlink()
+        code, _, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("warning", err)
+
+    def test_uninstall_works_without_cwd(self):
+        for config in (True, False):
+            with self.subTest(config=config):
+                if not config:
+                    (self.ais_dir / "config.json").unlink()
+                with mock.patch.object(cli.Path, "cwd", side_effect=OSError("gone")):
+                    code, out, err = self.ais("", "--dry-run")
+                self.assertEqual(code, 0, err)
+                self.assertIn("Uninstall would remove:", out)
+
+    def test_uninstall_kept_snapshots_symlink_named_not_sized(self):
+        real = self.home / "elsewhere"
+        real.mkdir()
+        (real / "big").write_text("x" * 100)
+        (self.ais_dir / "snapshots").symlink_to(real)
+        code, out, err = self.ais("y\nn\n")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Kept %s (a symlink to %s)" % (self.ais_dir / "snapshots", real), out)
+        self.assertNotIn("bytes", out)
+        self.assertEqual((real / "big").read_text(), "x" * 100)
