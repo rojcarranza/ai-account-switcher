@@ -42,8 +42,12 @@ def _read_cache(store: Store) -> dict:
 
 def credential_state(store: Store, provider: Any, account: Account, cache_only: bool,
                      base_env: Mapping[str, str],
-                     now: Callable[[], float] = time.time) -> Tuple[str, str, str]:
-    """(state, source, error); `auth status` results are cached 10 minutes, Keychain ones are not."""
+                     now: Callable[[], float] = time.time,
+                     warnings: Optional[List[str]] = None) -> Tuple[str, str, str]:
+    """(state, source, error); `auth status` results are cached 10 minutes, Keychain ones are not.
+
+    With `warnings`, a failed cache write is appended there instead of raised.
+    """
     entries = _read_cache(store).get("credentials", {})
     e = entries.get(account.name) if isinstance(entries, dict) else None
     if isinstance(e, dict) and e.get("cred_dir") == account.cred_dir \
@@ -60,7 +64,12 @@ def credential_state(store: Store, provider: Any, account: Account, cache_only: 
             creds[account.name] = {"cred_dir": account.cred_dir, "state": result[0],
                                    "source": result[1], "error": result[2], "at": now()}
             return d
-        store.update_json("cache.json", fn)
+        try:
+            store.update_json("cache.json", fn)
+        except (AisError, OSError) as e:
+            if warnings is None:
+                raise
+            warnings.append("cannot write cache.json: %s" % getattr(e, "message", e))
     return result
 
 
@@ -222,8 +231,10 @@ def _open_pids(provider: Provider) -> Mapping[int, Tuple[str, Path]]:
     return found
 
 
-def _last_used(ctx: Context, session: Session) -> Optional[str]:
-    sessions = ctx.store.read_json("state.json").get("sessions")
+def _last_used(ctx: Context, session: Session, sessions: Any = None) -> Optional[str]:
+    """`sessions` is state.json's "sessions" value when the caller already read it."""
+    if sessions is None:
+        sessions = ctx.store.read_json("state.json").get("sessions")
     rec = sessions.get(str(session.transcript)) if isinstance(sessions, dict) else None
     name = rec.get("account") if isinstance(rec, dict) else None
     return name if isinstance(name, str) and name in ctx.config.accounts else None
@@ -364,31 +375,52 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
 RECENT_COUNT = 5
 
 
+def _iso_utc(ts: float) -> Optional[str]:
+    try:
+        return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def gather_status(ctx: Context, cache_only: bool) -> dict:
-    """FR-4.6 dict (plus credential source and error); read-only apart from the credential cache."""
+    """FR-4.6 dict (plus credential source and error); unreadable or unwritable state becomes a self-check message."""
     provider = ctx.provider_for(ctx.config.accounts[ctx.config.default])
+    extra = []  # type: List[str]
     accounts = []
     for acc in ctx.config.accounts.values():
-        state, source, error = credential_state(ctx.store, ctx.provider_for(acc), acc, cache_only, ctx.env)
+        state, source, error = credential_state(ctx.store, ctx.provider_for(acc), acc, cache_only, ctx.env,
+                                                warnings=extra)
         accounts.append({"name": acc.name, "label": acc.label, "credential_present": state,
                          "credential_source": source, "credential_error": error})
-    cache = Cache(ctx.store)
+
+    class StatusCache(Cache):
+        def save(self) -> None:
+            try:
+                Cache.save(self)
+            except (AisError, OSError) as e:
+                extra.append("cannot write cache.json: %s" % getattr(e, "message", e))
+
+    cache = StatusCache(ctx.store)
     newest = provider.newest_session(ctx.cwd, cache)
     recent = provider.recent_sessions(RECENT_COUNT, cache)
     found = _open_pids(provider)  # one process scan serves every open check
+    try:  # read once; a corrupt state.json leaves every last-used unknown
+        sessions = ctx.store.read_json("state.json").get("sessions") or {}
+    except AisError as e:
+        sessions = {}
+        extra.append(e.message)
 
     def is_open(s: Session) -> bool:
         return provider.open_session_pid(s, found) is not None
 
-    messages = provider.self_check()
+    messages = provider.self_check() + extra
     return {
         "accounts": accounts,
-        "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest),
+        "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest, sessions),
                                                 "open": is_open(newest)},
-        "recent": [{"id": s.id, "folder": str(s.folder), "title": s.title, "last_used": _last_used(ctx, s),
-                    "open": is_open(s),
-                    "modified": datetime.fromtimestamp(s.modified, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
-                   for s in recent],
+        "recent": [{"id": s.id, "folder": str(s.folder), "title": s.title,
+                    "last_used": _last_used(ctx, s, sessions), "open": is_open(s),
+                    "modified": _iso_utc(s.modified)} for s in recent],
         "self_check": {"ok": not messages, "messages": messages},
     }
 

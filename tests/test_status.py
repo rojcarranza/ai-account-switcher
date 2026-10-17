@@ -87,3 +87,27 @@ class StatusTest(SwitchCase):
         code, _, err = self.ais("status")
         self.assertEqual(code, 78)
         self.assertIn("bad", err)
+
+    def test_corrupt_state_json_is_a_warning_not_an_abort(self):
+        (self.ais_dir / "state.json").write_text("{not json")
+        code, out, _ = self.ais("status")
+        self.assertEqual(code, 0)
+        self.assertIn("last used unknown", out)
+        self.assertIn("warning: ", out)
+        self.assertIn("state.json", out)
+        _, out, _ = self.ais("status", "--json")
+        self.assertFalse(json.loads(out)["self_check"]["ok"])
+
+    def test_unwritable_store_still_prints(self):
+        self.ais_dir.chmod(0o500)
+        self.addCleanup(self.ais_dir.chmod, 0o700)
+        code, out, _ = self.ais("status")
+        self.assertEqual(code, 0)
+        self.assertIn("credential present: yes", out)
+        self.assertIn("warning: ", out)
+
+    def test_absurd_mtime_gives_null_modified(self):
+        from ais.core import _iso_utc  # the filesystem clamps utime, so test the conversion itself
+        self.assertIsNone(_iso_utc(1e30))
+        self.assertIsNone(_iso_utc(float("nan")))
+        self.assertEqual(_iso_utc(0), "1970-01-01T00:00:00Z")
