@@ -1,0 +1,6 @@
+{"type": "queue-operation", "operation": "enqueue"}
+{"type": "ai-title", "title": "ignored"}
+{"type": "user", "isMeta": true, "message": {"content": "caveat text"}, "cwd": "@HOME@/proj"}
+this line is not json
+{"type": "user", "message": {"content": "<command-name>/clear</command-name>"}, "cwd": "@HOME@/elsewhere"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "x"}, {"type": "text", "text": "\n  Fix the login bug\nsecond line"}]}, "cwd": "@HOME@/elsewhere"}

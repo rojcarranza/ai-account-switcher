@@ -7,10 +7,12 @@ import plistlib
 import re
 import subprocess
 import unicodedata
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ais.accounts import Account
+from ais.providers.base import Session
 
 SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
@@ -138,7 +140,83 @@ def _repo_roots(folder: Path) -> List[Path]:
     return roots
 
 
+TITLE_MAX = 60
+
+
+def _prompt_title(d: Any) -> Optional[str]:
+    """Title from a transcript line if it is a real user prompt, else None."""
+    if not isinstance(d, dict) or d.get("type") != "user" or d.get("isMeta") is True:
+        return None
+    msg = d.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, list):
+        content = next((b.get("text") for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"), None)
+    if not isinstance(content, str) or content.lstrip().startswith("<"):
+        return None
+    for line in content.splitlines():
+        if line.strip():
+            return line.strip()[:TITLE_MAX]
+    return ""
+
+
+def _read_transcript(path: Path) -> Tuple[Optional[str], str]:
+    """(session folder, title); stops once both are known. Folder is None without any cwd line."""
+    folder, title = None, None  # type: Optional[str], Optional[str]
+    with open(str(path), encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if folder is None and isinstance(d, dict) and isinstance(d.get("cwd"), str) and d["cwd"]:
+                folder = d["cwd"]
+            if title is None:
+                title = _prompt_title(d)
+            if folder is not None and title is not None:
+                break
+    return folder, title or ""
+
+
+def _same_folder(a: str, b: str) -> bool:
+    # NFC on both sides: Finder hands out NFD names
+    return (unicodedata.normalize("NFC", os.path.realpath(a))
+            == unicodedata.normalize("NFC", os.path.realpath(b)))
+
+
 class ClaudeProvider:
+    def _scan(self, cache: Any) -> List[Session]:
+        """Sessions from projects/*/*.jsonl (top level only: subagent transcripts live deeper), newest first."""
+        found = []
+        for path in (Path.home() / ".claude" / "projects").glob("*/*.jsonl"):
+            try:
+                if str(uuid.UUID(path.stem)) != path.stem:
+                    continue
+                st = path.stat()
+                key = str(path)
+                hit = cache.lookup(key, st.st_mtime, st.st_size)
+                if hit is None:
+                    folder, title = _read_transcript(path)
+                    if folder is None:
+                        continue
+                    cache.put(key, st.st_mtime, st.st_size, folder, title)
+                else:
+                    folder, title = hit
+            except (ValueError, OSError):  # not a UUID name, or the file vanished or is unreadable
+                continue
+            found.append(Session(path.stem, Path(folder), path, title, st.st_mtime))
+        cache.save()
+        return sorted(found, key=lambda s: s.modified, reverse=True)
+
+    def newest_session(self, folder: Path, cache: Any) -> Optional[Session]:
+        return next((s for s in self._scan(cache) if _same_folder(str(s.folder), str(folder))), None)
+
+    def recent_sessions(self, limit: int, cache: Any) -> List[Session]:
+        return self._scan(cache)[:limit]
+
+    def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
+        return next((s for s in self._scan(cache) if s.id == session_id), None)
+
     def env_for(self, account: Account, base_env: Mapping[str, str]) -> Tuple[Dict[str, str], List[str]]:
         env = dict(base_env)
         warnings = []
