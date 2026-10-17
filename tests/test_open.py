@@ -137,3 +137,15 @@ class OpenTest(TempHomeCase):
         self.fake([(1, DESKTOP + " daemon run", str(self.folder)),
                    (2, DESKTOP + " bg-spare", str(self.folder))])
         self.assertIsNone(self.pid())
+
+    def test_raw_utf8_cwd_found_under_c_locale_parent(self):
+        import subprocess
+        import sys
+        from tests.helpers import SRC
+        code = ("import sys; from ais import procs; f, w = procs.process_cwds('claude', 5);"
+                "sys.stdout.buffer.write(b'|'.join(str(c).encode() for _, c in f.values()))")
+        env = dict(os.environ, LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0",
+                   PYTHONPATH=str(SRC), FAKE_PGREP_OUT="7", FAKE_PS_OUT="7 claude",
+                   FAKE_LSOF_OUT="p7\nn/tmp/café a b")
+        out = subprocess.run([sys.executable, "-c", code], env=env, stdout=subprocess.PIPE).stdout
+        self.assertEqual(out.decode("utf-8"), "/tmp/café a b")

@@ -14,7 +14,7 @@ def _run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = 
     tool = cmd[0]
     try:
         proc = subprocess.Popen(list(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, universal_newlines=True, errors="replace",
+                                stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
                                 start_new_session=True, env=env)
     except OSError as e:
         return None, "", "cannot run %s: %s" % (tool, e)
