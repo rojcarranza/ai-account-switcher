@@ -80,7 +80,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if ns.command == "uninstall":  # works with a broken or missing config
             try:
                 ctx = _context(started)
-            except AisError:
+            except (AisError, OSError):  # 3.9's Path.exists() raises on an unreadable folder
                 ctx = _context(started, Config({}, "", {}, False))
             return core.cmd_uninstall(ctx, ns.dry_run)
         if ns.command == "status":
