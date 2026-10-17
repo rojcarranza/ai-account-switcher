@@ -91,7 +91,7 @@ class RenderTest(SwitchCase):
     def test_privacy_mode_hides_folders_and_titles(self):
         out = menu.render(status(), True, AIS)
         self.assertEqual(out.split("\n")[2:6], ["Personal: credential yes", "Work: credential unknown", "---",
-                                                "2 recent sessions, 1 open"])
+                                                "recent sessions: 2, open: 1"])
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
         self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS, out)
@@ -115,7 +115,7 @@ class RenderTest(SwitchCase):
     def test_privacy_mode_counts_warnings_without_text(self):
         s = status(self_check={"ok": False, "messages": ["secret /Users/x", "b"]})
         out = menu.render(s, True, AIS)
-        self.assertIn("\n2 warnings\n", out)
+        self.assertIn("\nwarnings: 2\n", out)
         self.assertNotIn("secret", out)
 
     def test_desktop_item_per_account_only_account_in_action(self):
@@ -160,6 +160,13 @@ class RenderProcessTest(SwitchCase):
         return {n: (self.ais_dir / n).read_bytes() if (self.ais_dir / n).exists() else None
                 for n in ("state.json", "config.json")}
 
+    def startup(self):
+        """Interpreter and import time, subtracted from the 5 s bound so a slow CI box does not flake."""
+        t = time.monotonic()
+        subprocess.run([sys.executable, "-m", "ais", "--version"], stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                       env=dict(os.environ, PYTHONPATH=str(SRC), HOME=str(self.home)), check=True)
+        return time.monotonic() - t
+
     def render(self, timeout=20, **env):
         e = dict(os.environ, PYTHONPATH=str(SRC), HOME=str(self.home), **env)
         t = time.monotonic()
@@ -198,9 +205,10 @@ class RenderProcessTest(SwitchCase):
         child = self.home / "lsof.child"
         self.env(FAKE_PGREP_OUT="123", FAKE_PS_OUT="123 claude", FAKE_LSOF_HANG="1",
                  FAKE_LSOF_CHILD_FILE=str(child))
+        base = self.startup()
         code, out, _, took = self.render(timeout=15)
         self.assertEqual(code, 0)
-        self.assertLess(took, 5.0)
+        self.assertLess(took - base, 5.0)
         self.assertTrue(out.startswith("ais ⚠\n---\n"), out)
         self.assertNotIn("bash=", out)
         pid = int(child.read_text())
@@ -211,15 +219,35 @@ class RenderProcessTest(SwitchCase):
     def test_render_deadline_kills_hung_keychain_check(self):
         child = self.home / "security.child"
         self.env(FAKE_PGREP_OUT="", FAKE_SECURITY_SLEEP="30", FAKE_SECURITY_CHILD_FILE=str(child))
+        base = self.startup()
         code, out, _, took = self.render(timeout=15)  # no cache: the Keychain check hangs, so the 4.5 s deadline fires
         self.assertEqual(code, 0)
         self.assertGreater(took, 4.0)
-        self.assertLess(took, 5.0)
+        self.assertLess(took - base, 5.0)
         self.assertEqual(out, "ais ⚠\n---\nais: timed out after 4.5 s\n")
         self.assertNotIn("bash=", out)
         time.sleep(0.3)
         with self.assertRaises(OSError):
             os.kill(int(child.read_text()), 0)
+
+    def test_failure_line_hides_details_in_privacy_mode(self):
+        cfg = self.config()
+        cfg["menu_privacy"] = True
+        (self.ais_dir / "config.json").write_text(__import__("json").dumps(cfg))
+        self.env(FAKE_PGREP_OUT="123", FAKE_PS_OUT="123 claude", FAKE_LSOF_RC="2")
+        code, out, _, _ = self.render()
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "ais ⚠\n---\nais: error (details hidden by menu_privacy; run ais status)\n")
+
+    def test_deadline_removes_inflight_cache_temp(self):
+        script = ("import sys\nfrom ais import store, cli\nimport time\n"
+                  "store._sync = lambda fd: time.sleep(30)\nsys.exit(cli.main(['menu', 'render']))\n")
+        self.env(FAKE_PGREP_OUT="")
+        e = dict(os.environ, PYTHONPATH=str(SRC), HOME=str(self.home))
+        p = subprocess.run([sys.executable, "-c", script], stdin=subprocess.PIPE, capture_output=True,
+                           encoding="utf-8", env=e, cwd=str(self.home), timeout=20)
+        self.assertEqual(p.stdout, "ais ⚠\n---\nais: timed out after 4.5 s\n", p.stderr)
+        self.assertEqual([n.name for n in self.ais_dir.glob(".cache.json.*")], [])
 
     def test_malformed_config_is_ais_warning_not_traceback(self):
         (self.ais_dir / "config.json").write_text("{")

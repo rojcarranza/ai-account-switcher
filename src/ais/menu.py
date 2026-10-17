@@ -6,7 +6,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from typing import Callable, Dict, List, NoReturn
+from typing import Any, Callable, Dict, List, NoReturn
 
 from ais import core, procs
 from ais.accounts import NAME_RE
@@ -15,9 +15,8 @@ DEADLINE = 4.5  # FR-4.11 allows 5 s; the rest is for killing children and print
 
 
 def sanitize(text: str) -> str:
-    """FR-4.12: drop `|`, line and paragraph separators and every control or format character."""
-    return "".join(c for c in text if c != "|" and unicodedata.category(c) not in ("Zl", "Zp")
-                   and not unicodedata.category(c).startswith("C"))
+    """FR-4.12: drop control and format characters (core._clean), `|`, and line and paragraph separators."""
+    return "".join(c for c in core._clean(text) if c not in "|\u2028\u2029")
 
 
 def _name(name: str) -> str:
@@ -62,7 +61,7 @@ def render(status: dict, privacy: bool, ais_path: str) -> str:
         out.append("%s: credential %s" % (labels[a["name"]], sanitize(a["credential_present"])))
     out.append("---")
     if privacy:
-        out.append("%d recent sessions, %d open" % (len(recent), sum(1 for s in recent if s["open"])))
+        out.append("recent sessions: %d, open: %d" % (len(recent), sum(1 for s in recent if s["open"])))
     else:
         for s in recent:
             sid = _uuid(s["id"])
@@ -80,7 +79,7 @@ def render(status: dict, privacy: bool, ais_path: str) -> str:
     msgs = status["self_check"]["messages"]
     if privacy:
         if msgs:
-            out.append("%d warnings" % len(msgs))
+            out.append("warnings: %d" % len(msgs))
     else:
         out.extend("Warning: " + sanitize(m) for m in msgs)
     out.append("---")
@@ -90,31 +89,43 @@ def render(status: dict, privacy: bool, ais_path: str) -> str:
     return "\n".join(out)
 
 
-def _failure(message: str) -> str:
-    return "ais ⚠\n---\nais: " + sanitize(message)[:300]
+HIDDEN = "error (details hidden by menu_privacy; run ais status)"
+
+
+def _failure(message: str, hide: bool = False) -> str:
+    """FR-4.14: with menu_privacy on, error text (which can hold folders) is not shown."""
+    return "ais ⚠\n---\nais: " + (HIDDEN if hide else sanitize(message)[:300])
 
 
 def cmd_menu_render(make_ctx: Callable[[], core.Context], ais_path: str, started: float) -> NoReturn:
     """FR-4.11: any failure or timeout prints the warning menu; always exits 0 without waiting for leftovers."""
-    box = {}  # type: Dict[str, str]
+    box = {}  # type: Dict[str, Any]
 
     def work() -> None:
         try:
             ctx = make_ctx()
+            box["store"] = ctx.store
+            box["hide"] = ctx.config.menu_privacy
             warnings = []  # type: List[str]
             st = core.gather_status(ctx, True, warnings)
             if warnings:  # an unknown open state would offer Resume for an open session
                 raise RuntimeError(warnings[0])
             box["out"] = render(st, ctx.config.menu_privacy, ais_path)
         except BaseException as e:  # a thread must not die with a traceback on stderr
-            box["out"] = _failure(getattr(e, "message", None) or str(e) or type(e).__name__)
+            box["out"] = _failure(getattr(e, "message", None) or str(e) or type(e).__name__, box.get("hide", False))
 
     t = threading.Thread(target=work, daemon=True)
     t.start()
     t.join(max(0.0, started + DEADLINE - time.monotonic()))
     if t.is_alive():
         procs.kill_live()
-        box.setdefault("out", _failure("timed out after %g s" % DEADLINE))
+        tmp = box["store"].inflight_tmp if "store" in box else None
+        if tmp:  # os._exit would strand a half-written temp file in ~/.config/ais
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        box.setdefault("out", _failure("timed out after %g s" % DEADLINE, box.get("hide", False)))
     sys.stdout.write(box["out"] + "\n")
     sys.stdout.flush()
     os._exit(0)

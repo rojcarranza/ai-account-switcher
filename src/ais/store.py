@@ -68,6 +68,7 @@ class Store:
         self.home = Path(home)
         self.dir = self.home / ".config" / "ais"
         self._held = set()  # lock names held by this instance (flock is not re-entrant)
+        self.inflight_tmp = None  # type: Optional[str]  # temp file of a write in progress, for a hard exit to remove
 
     def _ensure_dir(self) -> None:
         # chmod after mkdir so the mode holds under any umask
@@ -127,6 +128,7 @@ class Store:
             tmp = None
             try:
                 fd, tmp = tempfile.mkstemp(dir=str(self.dir), prefix="." + name + ".")
+                self.inflight_tmp = tmp
                 with os.fdopen(fd, "w") as f:
                     json.dump(new, f, indent=2)  # config.json is hand-edited: keep it readable
                     f.flush()
@@ -146,6 +148,8 @@ class Store:
                 if isinstance(e, OSError):
                     raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
                 raise
+            finally:
+                self.inflight_tmp = None
             return new
 
     def prune_state(self, exists: Callable[[str], bool]) -> None:
