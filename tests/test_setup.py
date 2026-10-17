@@ -4,6 +4,7 @@ import io
 import json
 import os
 import stat
+from pathlib import Path
 from unittest import mock
 
 from ais import cli
@@ -53,9 +54,9 @@ class SetupTest(TempHomeCase):
         before = tree(self.home)
         code, out, err = self.ais(BLANK + "n\n")
         self.assertEqual(code, 65)
-        text = out + err
-        for part in ("config.json", ".lock", "cache.json", "ais.log", self.work):
-            self.assertIn(part, text)
+        for part in ("config.json", ".lock", "cache.json", "ais.log"):
+            self.assertIn(part, out)
+        self.assertIn("  %s/ (empty, mode 0700)\n" % self.work, out)  # the listing, not the prompt default
         self.assertEqual(tree(self.home), before)
         self.assertFalse(self.ais_dir.exists())
         self.assertEqual(self.calls_text(), "")
@@ -157,3 +158,53 @@ class SetupTest(TempHomeCase):
             code, _, err = self.ais(stdin + "y\n")
             self.assertEqual(code, 64, stdin)
             self.assertFalse(self.ais_dir.exists())
+
+    def test_setup_unknown_state_prints_login_hint(self):
+        os.environ["FAKE_CLAUDE_AUTH_RC"] = "1"
+        os.environ["FAKE_SECURITY_RC"] = "1"
+        os.environ["FAKE_SECURITY_ERR"] = "boom"
+        for k in ("FAKE_CLAUDE_AUTH_RC", "FAKE_SECURITY_RC", "FAKE_SECURITY_ERR"):
+            self.addCleanup(os.environ.pop, k, None)
+        code, out, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        self.assertIn("run `ais login work`", out)
+        self.assertNotIn("auth login", self.calls_text())
+
+    def test_setup_mkdir_failure_exits_73(self):
+        with mock.patch("pathlib.Path.mkdir", side_effect=PermissionError("denied")):
+            code, _, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 73)
+        self.assertIn("denied", err)
+
+    def test_setup_existing_cred_dir_is_left_alone(self):
+        real = Path.mkdir
+
+        def racing(path, *a, **k):  # the folder appears after the listing
+            real(path, 0o755)
+            raise FileExistsError(str(path))
+        with mock.patch("pathlib.Path.mkdir", racing):
+            code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+
+    def test_setup_malformed_kept_keys_exit_78_writing_nothing(self):
+        self.ais_dir.mkdir(parents=True)
+        (self.ais_dir / "config.json").write_text('{"menu_privacy": "yes"}')
+        code, _, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 78)
+        self.assertIn("menu_privacy", err)
+        self.assertEqual(tree(self.home), [".config", ".config/ais", ".config/ais/config.json"])
+
+    def test_setup_billing_guard_after_write_prints_retry_hint(self):
+        os.environ["ANTHROPIC_API_KEY"] = "x"
+        self.addCleanup(os.environ.pop, "ANTHROPIC_API_KEY", None)
+        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.work
+        code, _, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 77)
+        self.assertIn("ais login work", err)
+
+    def test_setup_dry_run_prints_env_warnings(self):
+        os.environ[CONFIG_DIR_ENV] = "/x"
+        code, out, err = self.ais(BLANK, "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("Setup would create:", out)
+        self.assertIn(CONFIG_DIR_ENV, err)

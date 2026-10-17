@@ -485,6 +485,12 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
 
     home = ctx.store.home
     existing = ctx.store.read_json("config.json")  # 78 when it is not valid JSON: never drop acks
+    acks, privacy = existing.get("cross_account_ack", {}), existing.get("menu_privacy", False)
+    for key, ok in (("cross_account_ack", isinstance(acks, dict) and all(isinstance(v, str) for v in acks.values())),
+                    ("menu_privacy", isinstance(privacy, bool))):
+        if not ok:  # load_config would reject it after the write
+            raise AisError(EXIT_CONFIG, "%s: %s is malformed; fix or remove it first"
+                           % (ctx.store.dir / "config.json", key))
     provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
     names = []  # type: List[str]
     picked = []  # type: List[Account]
@@ -521,7 +527,7 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
                 for f in SETUP_FILES if f == "config.json" or not (ctx.store.dir / f).exists()]
     cred_dirs = [d for a in picked if a.cred_dir for d in _missing_dirs(Path(a.cred_dir))]
     creates += ["%s/ (empty, mode 0700)" % d for d in cred_dirs]
-    print("Setup will create:")
+    print("Setup would create:" if dry_run else "Setup will create:")
     for c in creates:
         print("  " + c)
     config = {"version": 1, "default": picked[0].name,
@@ -532,7 +538,8 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     if dry_run:
         print("config.json would contain:\n" + json.dumps(config, indent=2))
         for a in picked:
-            env, _ = provider.env_for(a, ctx.env)
+            env, warnings = provider.env_for(a, ctx.env)
+            guards.print_warnings(warnings)
             prefix = provider.describe_env(env)
             print("%s: check with: %s%s" % (a.name, prefix, shlex.join(provider.auth_status_command())))
             print("%s: sign in only if logged out: %s%s" % (a.name, prefix, shlex.join(provider.login_command())))
@@ -542,7 +549,12 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     else:
         try:
             for d in cred_dirs:
-                d.mkdir(mode=0o700)
+                try:
+                    d.mkdir(mode=0o700)
+                except FileExistsError:  # it appeared since the listing: leave it as it is
+                    if d.is_dir():
+                        continue
+                    raise
                 d.chmod(0o700)  # the umask must not decide the mode
         except OSError as e:
             raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (d, e))
@@ -561,7 +573,11 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
                 print("%s: could not tell whether it is signed in (%s); run `ais login %s`"
                       % (a.name, err, a.name))
             elif state == "no":
-                rc = cmd_login(ctx2, a.name, False)
+                try:
+                    rc = cmd_login(ctx2, a.name, False)
+                except AisError:
+                    print("sign-in of %s failed; run `ais login %s` to retry" % (a.name, a.name), file=sys.stderr)
+                    raise
                 if rc != 0:
                     print("sign-in of %s exited %d; run `ais login %s` to retry" % (a.name, rc, a.name),
                           file=sys.stderr)
