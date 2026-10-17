@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import List, NoReturn, Optional
 
@@ -27,20 +28,27 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("account", nargs="?")  # default = config.default
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--allow-api-key", action="store_true")
+    switch = sub.add_parser("switch", help="resume a session on another account", allow_abbrev=False)
+    switch.add_argument("account", nargs="?")  # missing -> the session's other account
+    switch.add_argument("--pick", action="store_true")
+    switch.add_argument("--session")
+    switch.add_argument("--dry-run", action="store_true")
+    switch.add_argument("--allow-api-key", action="store_true")
     return p
 
 
-def _context() -> core.Context:
+def _context(started: float) -> core.Context:
     store = Store(Path.home())
     try:
         cwd = Path.cwd()
     except OSError:
         raise AisError(66, "the current folder no longer exists")
     return core.Context(store, load_config(store, providers.REGISTRY),
-                        lambda a: providers.get(a.provider), dict(os.environ), cwd)
+                        lambda a: providers.get(a.provider), dict(os.environ), cwd, started=started)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    started = time.monotonic()  # FR-3.14 tool time starts here
     args = sys.argv[1:] if argv is None else argv
     passthrough = []  # type: List[str]
     if args[:1] == ["run"] and "--" in args:  # everything after the first "--" goes to claude untouched
@@ -54,8 +62,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         if ns.command is None:
             raise AisError(EXIT_USAGE, "a command is required\n" + _parser().format_usage().rstrip())
         if ns.command == "run":
-            return core.cmd_run(_context(), ns.account, passthrough, ns.allow_api_key, ns.dry_run)
-        return core.cmd_login(_context(), ns.account or "", ns.dry_run, ns.allow_api_key)
+            return core.cmd_run(_context(started), ns.account, passthrough, ns.allow_api_key, ns.dry_run)
+        if ns.command == "switch":
+            if ns.pick and ns.session is not None:
+                raise AisError(EXIT_USAGE, "--pick and --session cannot be combined")
+            return core.cmd_switch(_context(started), ns.account, ns.pick, ns.session,
+                                   ns.allow_api_key, ns.dry_run)
+        return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)
     except KeyboardInterrupt:
         return 130
     except AisError as e:

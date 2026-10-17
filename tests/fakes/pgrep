@@ -1,5 +1,10 @@
 #!/bin/sh
 # Fake pgrep: prints $FAKE_PGREP_OUT; exit 1 when empty (no match).
 [ -n "${FAKE_CALL_LOG:-}" ] && echo "pgrep $*" >> "$FAKE_CALL_LOG"
+if [ -n "${FAKE_PROCS_PIDFILE:-}" ]; then  # report the claude whose pid lands in that file (waits ~2 s)
+    i=0
+    while [ ! -s "$FAKE_PROCS_PIDFILE" ] && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done
+    FAKE_PGREP_OUT=$(cat "$FAKE_PROCS_PIDFILE" 2>/dev/null)
+fi
 [ -n "${FAKE_PGREP_OUT:-}" ] || exit 1
 printf '%s\n' "$FAKE_PGREP_OUT"

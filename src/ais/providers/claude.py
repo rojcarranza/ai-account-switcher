@@ -8,6 +8,7 @@ import re
 import shlex
 import unicodedata
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -145,6 +146,25 @@ def _repo_roots(folder: Path) -> List[Path]:
     return roots
 
 
+_FRACTION = re.compile(r"\.(\d+)")
+
+
+def _parse_time(stamp: str) -> datetime:
+    # 3.9 fromisoformat takes no "Z" and only 3 or 6 fraction digits: pad or cut to 6
+    stamp = _FRACTION.sub(lambda m: "." + (m.group(1) + "00000")[:6], stamp.replace("Z", "+00:00"), count=1)
+    return datetime.fromisoformat(stamp)
+
+
+def _timed_line(raw: bytes) -> Optional[Tuple[dict, float]]:
+    """(object, UTC seconds) for a transcript line with a zoned ISO timestamp, else None."""
+    try:
+        d = json.loads(raw.decode("utf-8", "replace"))
+        t = _parse_time(d["timestamp"])
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return (d, t.timestamp()) if t.tzinfo is not None else None  # a naive time has no defined zone
+
+
 TITLE_MAX = 60
 
 
@@ -197,6 +217,7 @@ class ClaudeProvider:
     install_hint = "install Claude Code: https://code.claude.com/docs/en/setup"
     resume_flags = ("--resume", "--continue", "--from-pr", "--fork-session")
     short_resume_letters = "rc"
+    process_name = PROCESS_NAME
 
     def default_settings_roots(self) -> Dict[str, Path]:
         return default_settings_roots()
@@ -231,11 +252,45 @@ class ClaudeProvider:
         target = _nfc_real(str(folder))
         return next((s for s in self._scan(cache) if _same_folder(str(s.folder), target)), None)
 
-    def recent_sessions(self, limit: int, cache: Any) -> List[Session]:
-        return self._scan(cache)[:limit]
+    def recent_sessions(self, limit: int, cache: Any, folder: Optional[Path] = None) -> List[Session]:
+        found = self._scan(cache)
+        if folder is not None:
+            target = _nfc_real(str(folder))
+            found = [s for s in found if _same_folder(str(s.folder), target)]
+        return found[:limit]
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
+
+    def limit_time(self, session: Session, launch_offset: int) -> Optional[float]:
+        """FR-3.14 end-to-end seconds: from the LIMIT_MARKER line the session stopped at (no later non-meta
+        user/assistant line before launch_offset) to the first complete line appended at or after launch_offset.
+
+        File order decides, not timestamps: Claude does not write them in order.
+        """
+        last = None  # type: Optional[float]
+        end = 0
+        try:
+            with open(str(session.transcript), "rb") as f:
+                for raw in f:
+                    start, end = end, end + len(raw)
+                    if start < launch_offset < end or not raw.endswith(b"\n"):
+                        continue  # straddles the launch, or still being written
+                    parsed = _timed_line(raw)
+                    if parsed is None:
+                        continue
+                    d, t = parsed
+                    if start >= launch_offset:
+                        if last is None:
+                            return None
+                        return t - last if t >= last else None
+                    if all(d.get(k) == v for k, v in LIMIT_MARKER.items()):
+                        last = t
+                    elif d.get("type") in ("user", "assistant") and d.get("isMeta") is not True:
+                        last = None  # the conversation went on after the limit; system/queue/meta lines do not count
+        except OSError:
+            pass
+        return None
 
     def open_session_pid(self, session: Session, procs: Mapping[int, Tuple[str, Path]]) -> Optional[int]:
         """Lowest PID of a claude with cwd in the session folder; the daemon and bg-* helpers are not sessions."""
@@ -318,6 +373,10 @@ class ClaudeProvider:
 
     def login_command(self) -> List[str]:
         return ["claude", "auth", "login"]
+
+    def snapshot_paths(self, session: Session) -> List[Path]:
+        sub = session.transcript.with_suffix("")  # <id>/ holds subagent files
+        return [session.transcript] + ([sub] if sub.is_dir() else [])
 
     def self_check(self) -> List[str]:
         _, out, warn, _ = procs.run(["claude", "--version"], VERSION_TIMEOUT)

@@ -2,16 +2,54 @@ import contextlib
 import fcntl
 import json
 import os
+import re
+import shutil
+import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, ContextManager, Iterator, Optional
+from typing import Callable, ContextManager, Iterator, List, Optional
 
+from ais import procs
 from ais.errors import AisError
 
 EXIT_CANNOT_WRITE = 73
 EXIT_CONFIG = 78
 LOG_MAX = 1024 * 1024
+SNAPSHOT_MAX_COUNT = 20
+SNAPSHOT_MAX_BYTES = 500 * 1024 * 1024
+SNAPSHOT_MAX_AGE = 30 * 86400
+SNAPSHOT_STAMP = "%Y%m%dT%H%M%SZ"
+CP_TIMEOUT = 30
+
+
+EXIT_USAGE = 64
+SNAPSHOT_NAME = re.compile(r"^\d{8}T\d{6}Z-")
+
+
+def _size(path: Path) -> int:
+    # lstat: a symlink counts as itself, never as what it points at
+    if not path.is_dir() or path.is_symlink():
+        return path.lstat().st_size
+    return sum(os.lstat(os.path.join(r, f)).st_size for r, _, fs in os.walk(str(path)) for f in fs)
+
+
+def _restrict(root: Path) -> None:
+    # FR-2.6: cp -c and copy2 keep source modes (0644); snapshots are private
+    for r, dirs, files in os.walk(str(root)):
+        for n in dirs + files:
+            q = os.path.join(r, n)
+            if not os.path.islink(q):
+                os.chmod(q, 0o700 if os.path.isdir(q) else 0o600)
+    os.chmod(str(root), 0o700)
+
+
+def _entry_time(path: Path) -> float:
+    try:
+        return datetime.strptime(path.name[:16], SNAPSHOT_STAMP).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return path.stat().st_mtime
 
 
 def _sync(fd: int) -> None:
@@ -90,7 +128,7 @@ class Store:
             try:
                 fd, tmp = tempfile.mkstemp(dir=str(self.dir), prefix="." + name + ".")
                 with os.fdopen(fd, "w") as f:
-                    json.dump(new, f)
+                    json.dump(new, f, indent=2)  # config.json is hand-edited: keep it readable
                     f.flush()
                     _sync(f.fileno())
                 os.replace(tmp, str(path))
@@ -138,3 +176,85 @@ class Store:
                     os.close(fd)
             except OSError as e:
                 raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+
+    def snapshot(self, paths: List[Path], session_id: str,
+                 now: Callable[[], float] = time.time) -> Optional[Path]:
+        """Copy paths into snapshots/<UTC stamp>-<id>/ (APFS clone, else plain copy); None when impossible."""
+        if not session_id or session_id in (".", "..") or "/" in session_id or "\0" in session_id:
+            raise AisError(EXIT_USAGE, "invalid session id %r" % session_id)
+        root = self.dir / "snapshots"
+        stamp = datetime.fromtimestamp(now(), timezone.utc).strftime(SNAPSHOT_STAMP)
+        target = None  # type: Optional[Path]
+        try:
+            self._ensure_dir()
+            root.mkdir(mode=0o700, exist_ok=True)
+            root.chmod(0o700)
+            n = 0
+            while target is None:
+                cand = root / ("%s-%s%s" % (stamp, session_id, "-%d" % n if n else ""))
+                try:
+                    cand.mkdir(mode=0o700)
+                    target = cand
+                except FileExistsError:
+                    n += 1
+            target.chmod(0o700)
+            cloned = all(self._clone(p, target) for p in paths)
+            if not cloned:
+                self._plain_copy(paths, target)
+            _restrict(target)
+        except OSError as e:
+            if target is not None:
+                shutil.rmtree(str(target), ignore_errors=True)
+            print("ais: warning: snapshot failed (%s); continuing without one" % e, file=sys.stderr)
+            return None
+        except _NoSpace:
+            shutil.rmtree(str(target), ignore_errors=True)
+            print("ais: warning: not enough free space for a snapshot; continuing without one", file=sys.stderr)
+            return None
+        self._prune_snapshots(root, target, now())
+        return target
+
+    @staticmethod
+    def _clone(src: Path, target: Path) -> bool:
+        rc, _, warn, _ = procs.run(["cp", "-c", "-R", str(src), str(target) + "/"], CP_TIMEOUT)
+        return rc == 0 and not warn
+
+    @staticmethod
+    def _plain_copy(paths: List[Path], target: Path) -> None:
+        for child in target.iterdir():  # drop what a half-done clone left
+            shutil.rmtree(str(child)) if child.is_dir() and not child.is_symlink() else child.unlink()
+        if shutil.disk_usage(str(target)).free < 2 * sum(_size(p) for p in paths):
+            raise _NoSpace()
+        for p in paths:
+            if p.is_dir() and not p.is_symlink():
+                shutil.copytree(str(p), str(target / p.name), symlinks=True)
+            else:
+                shutil.copy2(str(p), str(target / p.name), follow_symlinks=False)
+
+    @staticmethod
+    def _prune_snapshots(root: Path, keep: Path, now: float) -> None:
+        try:
+            entries = sorted((e for e in root.iterdir() if SNAPSHOT_NAME.match(e.name) and e.is_dir()), key=_entry_time)
+            sizes = {e: _size(e) for e in entries}
+            for e in list(entries):
+                if e != keep and now - _entry_time(e) > SNAPSHOT_MAX_AGE:
+                    shutil.rmtree(str(e), ignore_errors=True)
+                    entries.remove(e)
+            total = sum(sizes[e] for e in entries)
+            for e in list(entries):
+                if len(entries) <= SNAPSHOT_MAX_COUNT and total <= SNAPSHOT_MAX_BYTES:
+                    break
+                if e == keep:
+                    continue
+                shutil.rmtree(str(e), ignore_errors=True)
+                entries.remove(e)
+                total -= sizes[e]
+            if sizes[keep] > SNAPSHOT_MAX_BYTES:
+                print("ais: warning: the snapshot alone exceeds the %d MB cap; kept anyway"
+                      % (SNAPSHOT_MAX_BYTES // (1024 * 1024)), file=sys.stderr)
+        except OSError as e:  # pruning is best effort
+            print("ais: warning: cannot prune snapshots: %s" % e, file=sys.stderr)
+
+
+class _NoSpace(Exception):
+    pass

@@ -6,5 +6,6 @@ if [ -n "${FAKE_LSOF_HANG:-}" ]; then
     echo $! > "$FAKE_LSOF_CHILD_FILE"
     sleep 30
 fi
+[ -n "${FAKE_PROCS_PIDFILE:-}" ] && FAKE_LSOF_OUT=$(printf 'p%s\nn%s' "$(cat "$FAKE_PROCS_PIDFILE")" "$FAKE_PROCS_CWD")
 printf '%s\n' "${FAKE_LSOF_OUT:-}"
 exit "${FAKE_LSOF_RC:-0}"
