@@ -265,3 +265,22 @@ class UninstallTest(TempHomeCase):
         self.assertEqual(code, 73, err)
         self.assertIn(str(self.plugin), err)
         self.assertEqual((self.plugin / "inner").read_text(), "keep")
+
+    def test_uninstall_unsearchable_config_parent_exits_73(self):
+        self.ais_dir.parent.chmod(0)
+        self.addCleanup(self.ais_dir.parent.chmod, 0o700)
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                code, _, err = self.ais("y\n", *args)
+                self.assertEqual(code, 73, err)
+                self.assertIn(str(self.ais_dir), err)
+                self.assertNotIn("Traceback", err)
+
+    def test_uninstall_default_only_config_has_no_generic_lines(self):
+        (self.ais_dir / "config.json").write_text(json.dumps({
+            "version": 1, "default": "personal", "accounts": {
+                "personal": {"label": "Personal", "provider": "claude", "credDir": None}}}))
+        code, out, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("<account>", out)
+        self.assertNotIn("Keychain", out)

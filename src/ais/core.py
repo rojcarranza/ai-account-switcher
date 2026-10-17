@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 import time
 import unicodedata
@@ -664,13 +665,17 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
               "must be removed by hand", file=sys.stderr)
     entries = []  # type: List[Path]
-    if store.dir.is_symlink() or (os.path.lexists(str(store.dir)) and not store.dir.is_dir()):
-        entries = [store.dir]  # a symlink or plain file: unlinked, never followed
-    elif store.dir.is_dir():
-        try:
+    here = True
+    try:  # os.lstat, not pathlib: 3.14 pathlib reports EACCES as "missing", 3.9 raises
+        mode = os.lstat(str(store.dir)).st_mode
+        if not stat.S_ISDIR(mode):
+            entries = [store.dir]  # a symlink or plain file: unlinked, never followed
+        else:
             entries = sorted(store.dir.iterdir())
-        except OSError as e:
-            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
+    except FileNotFoundError:
+        here = False
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
     snaps = store.dir / "snapshots"
     snaps_here = snaps in entries
     steps = ["~/.local/bin/ais and ~/.local/bin/ais.prev: delete both files"]
@@ -680,7 +685,7 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         hint = ctx.provider_for(a).credential_removal_hint(a)
         if hint:
             steps.append("Keychain item of %s: %s" % (a.label, hint))
-    if not extras:
+    if not ctx.config.accounts:  # the no-config placeholder: generic wording
         steps.append(str(home / provider.cred_dir_root / "<account>") + ": each extra account's folder (kept)")
         hint = provider.credential_removal_hint(None)
         if hint:
@@ -693,7 +698,6 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         for s in steps:
             print("  " + s)
 
-    here = os.path.lexists(str(store.dir))
     if not here and plugin is None:
         print("Nothing to remove.")
         manual()
