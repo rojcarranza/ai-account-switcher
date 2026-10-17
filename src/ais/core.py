@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 import time
 import unicodedata
@@ -17,7 +18,7 @@ from ais.accounts import EXIT_USAGE, NAME_RE, Account, Config, _check_cred_dir, 
 from ais.errors import AisError
 from ais.providers import DEFAULT_PROVIDER, REGISTRY
 from ais.providers.base import Provider, Session
-from ais.store import EXIT_CANNOT_WRITE, EXIT_CONFIG, Store
+from ais.store import EXIT_CANNOT_WRITE, EXIT_CONFIG, Store, _size
 
 CREDENTIAL_TTL = 600
 EXIT_DECLINED = 65
@@ -84,9 +85,10 @@ def credential_state(store: Store, provider: Any, account: Account, cache_only: 
 class Cache:
     """Per-file (folder, title) cache in cache.json, keyed by path and valid for the same mtime and size."""
 
-    def __init__(self, store: Store, on_error: Optional[Callable[[str], None]] = None):
+    def __init__(self, store: Store, on_error: Optional[Callable[[str], None]] = None, read_only: bool = False):
         """With on_error, a failed read or save is reported there and the cache starts empty."""
         self.store = store
+        self._read_only = read_only  # FR-5.4: a dry run never writes cache.json
         self._on_error = on_error
         try:
             old = _read_cache(store).get("transcripts", {})
@@ -112,7 +114,7 @@ class Cache:
         self._seen[path] = {"mtime": mtime, "size": size, "folder": folder, "title": title}
 
     def save(self) -> None:
-        if not self._dirty and self._seen.keys() == self._old.keys():
+        if self._read_only or (not self._dirty and self._seen.keys() == self._old.keys()):
             return  # warm scan: skip the lock, rewrite and fsync
         def fn(d: dict) -> dict:
             d["transcripts"] = self._seen  # paths not seen in this scan are dropped
@@ -242,6 +244,7 @@ def _clean(text: str) -> str:
 
 
 def _ask(prompt: str) -> str:
+    sys.stdout.flush()  # a piped listing must come out before the prompt
     print(prompt, end="", file=sys.stderr, flush=True)
     return sys.stdin.readline().strip()
 
@@ -262,9 +265,9 @@ def _last_used(ctx: Context, session: Session, sessions: Any = None) -> Optional
 
 
 def _resolve_session(ctx: Context, provider: Provider, pick: bool,
-                     session_id: Optional[str]) -> Tuple[Session, Path]:
+                     session_id: Optional[str], dry_run: bool = False) -> Tuple[Session, Path]:
     """(session, folder to resume in)."""
-    cache = Cache(ctx.store)
+    cache = Cache(ctx.store, read_only=dry_run)
     if session_id is not None:
         try:
             valid = str(uuid.UUID(session_id)) == session_id
@@ -343,7 +346,8 @@ def _acknowledge(ctx: Context, last: Optional[str], target: Account, session: Se
 
 def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Optional[str],
                allow_api_key: bool, dry_run: bool) -> int:
-    s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session)
+    s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session,
+                            dry_run)
     last = _last_used(ctx, s)
     acc = _target(ctx, account, last)
     provider = ctx.provider_for(acc)
@@ -607,4 +611,122 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
         print("\nAdd this line to ~/.zshrc so your shell finds ais:\n  " + 'export PATH="$HOME/.local/bin:$PATH"'
               + "\nIt puts ~/.local/bin, where ais is installed, on your PATH.")
     print("\n" + provider.shared_data_note)
+    return 0
+
+
+def _unlink(path: Path) -> None:
+    """Unlink a file or symlink, never a folder; a missing path is skipped."""
+    try:
+        os.unlink(str(path))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+
+
+def _remove(path: Path) -> None:
+    """Remove a file, symlink or folder tree without following symlinks; a missing path is skipped."""
+    try:
+        if path.is_symlink() or not path.is_dir():  # inside try: 3.9 raises PermissionError here
+            _unlink(path)
+            return
+        for child in sorted(path.iterdir()):
+            _remove(child)
+        os.rmdir(str(path))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+
+
+def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-5.3, FR-5.5: list, ask, remove ~/.config/ais and the recorded plugin, print the manual steps. No lock."""
+    it = iter(answers) if answers is not None else None
+
+    def yes(prompt: str) -> bool:
+        a = next(it, "") if it is not None else _ask(prompt)
+        return a.strip().lower() in ("y", "yes")
+
+    store, home = ctx.store, ctx.store.home
+    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+    plugin = None  # type: Optional[Path]
+    try:
+        recorded = store.read_json("state.json").get("menu_plugin")
+        if recorded is not None and not isinstance(recorded, str):
+            raise AisError(EXIT_CONFIG, "menu_plugin is not a path")
+        if recorded and os.path.lexists(recorded):
+            rp = Path(recorded)
+            if rp.is_absolute() and (rp.is_symlink() or rp.is_file()):
+                plugin = rp
+            else:  # untrusted data: never delete a folder or a relative path
+                print("ais: warning: state.json menu_plugin %r is not an absolute file path; "
+                      "remove the plugin by hand" % recorded, file=sys.stderr)
+    except AisError:
+        print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
+              "must be removed by hand", file=sys.stderr)
+    entries = []  # type: List[Path]
+    here = True
+    try:  # os.lstat, not pathlib: 3.14 pathlib reports EACCES as "missing", 3.9 raises
+        mode = os.lstat(str(store.dir)).st_mode
+        if not stat.S_ISDIR(mode):
+            entries = [store.dir]  # a symlink or plain file: unlinked, never followed
+        else:
+            entries = sorted(store.dir.iterdir())
+    except FileNotFoundError:
+        here = False
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
+    snaps = store.dir / "snapshots"
+    snaps_here = snaps in entries
+    steps = ["~/.local/bin/ais and ~/.local/bin/ais.prev: delete both files"]
+    extras = [a for a in ctx.config.accounts.values() if not a.is_default]
+    for a in extras:
+        steps.append("%s: your %s sign-in folder (kept; delete it if you no longer need it)" % (a.cred_dir, a.label))
+        hint = ctx.provider_for(a).credential_removal_hint(a)
+        if hint:
+            steps.append("Keychain item of %s: %s" % (a.label, hint))
+    if not ctx.config.accounts:  # the no-config placeholder: generic wording
+        steps.append(str(home / provider.cred_dir_root / "<account>") + ": each extra account's folder (kept)")
+        hint = provider.credential_removal_hint(None)
+        if hint:
+            steps.append("Keychain: " + hint)
+    steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
+                 "and nothing else in ~/.local/bin needs it (claude itself lives there)")
+
+    def manual() -> None:
+        print("\nManual steps (ais never touches these):")
+        for s in steps:
+            print("  " + s)
+
+    if not here and plugin is None:
+        print("Nothing to remove.")
+        manual()
+        return 0
+    print("Uninstall would remove:" if dry_run else "Uninstall will remove:")
+    if plugin is not None:
+        print("  %s (SwiftBar plugin recorded in state.json)" % plugin)
+    for e in entries:
+        print("  %s%s" % (e, "/ (asks first)" if e == snaps else ""))
+    if not entries:
+        print("  %s/ (empty)" % store.dir)
+    if dry_run:
+        manual()
+        return 0
+    if not yes("Remove these? [y/N] "):
+        print("Nothing removed.", file=sys.stderr)
+        return EXIT_DECLINED
+    keep = snaps_here and not yes("Also delete the saved snapshots in %s? [y/N] " % snaps)
+    if plugin is not None:
+        _unlink(plugin)  # untrusted path: never a folder, even if swapped in after the check
+    if keep:
+        for e in entries:
+            if e != snaps:
+                _remove(e)
+        if snaps.is_symlink():
+            print("Kept %s (a symlink to %s)" % (snaps, os.readlink(str(snaps))))
+        else:
+            print("Kept %s (%d bytes)" % (snaps, _size(snaps)))
+    else:
+        _remove(store.dir)
+    manual()
     return 0

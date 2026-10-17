@@ -67,6 +67,11 @@ class Provider(Protocol):
 
     def self_check(self) -> List[str]: ...
 
+    def credential_removal_hint(self, account: Optional[Account]) -> Optional[str]:
+        """Manual step that removes an extra account's stored credential; None for the default account.
+        With account None (no config), a generic step for any extra account."""
+        ...
+
     def limit_time(self, session: Session, launch_offset: int) -> Optional[float]:
         """End-to-end seconds from the limit hit to the first transcript line appended past launch_offset."""
         ...

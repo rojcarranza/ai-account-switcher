@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 class FakeProvider:
@@ -27,3 +27,8 @@ class FakeProvider:
 
     def self_check(self) -> List[str]:
         return []
+
+    def credential_removal_hint(self, account) -> Optional[str]:
+        if account is None:
+            return "fake remove <account>"
+        return None if account.is_default else "fake remove %s" % account.name

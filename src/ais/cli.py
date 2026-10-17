@@ -39,15 +39,19 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     setup = sub.add_parser("setup", help="guided first-time setup", allow_abbrev=False)
     setup.add_argument("--dry-run", action="store_true")
+    uninstall = sub.add_parser("uninstall", help="remove ais's own files", allow_abbrev=False)
+    uninstall.add_argument("--dry-run", action="store_true")
     return p
 
 
-def _context(started: float, config: Optional[Config] = None) -> core.Context:
+def _context(started: float, config: Optional[Config] = None, cwd_optional: bool = False) -> core.Context:
     store = Store(Path.home())
     try:
         cwd = Path.cwd()
     except OSError:
-        raise AisError(66, "the current folder no longer exists")
+        if not cwd_optional:
+            raise AisError(66, "the current folder no longer exists")
+        cwd = Path.home()  # uninstall never reads the cwd
     return core.Context(store, config or load_config(store, providers.REGISTRY),
                         lambda a: providers.get(a.provider), dict(os.environ), cwd, started=started)
 
@@ -75,6 +79,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                                    ns.allow_api_key, ns.dry_run)
         if ns.command == "setup":  # no config exists yet: a placeholder one
             return core.cmd_setup(_context(started, Config({}, "", {}, False)), ns.dry_run)
+        if ns.command == "uninstall":  # works with a broken or missing config
+            try:
+                ctx = _context(started, cwd_optional=True)
+            except (AisError, OSError) as e:  # 3.9's Path.exists() raises on an unreadable folder
+                if os.path.lexists(str(Store(Path.home()).dir / "config.json")):  # missing = no warning
+                    print("ais: warning: %s; the manual steps below are generic"
+                          % (e.message if isinstance(e, AisError) else e), file=sys.stderr)
+                ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)
+            return core.cmd_uninstall(ctx, ns.dry_run)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)
