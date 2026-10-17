@@ -249,3 +249,18 @@ class SetupTest(TempHomeCase):
         os.environ[CONFIG_DIR_ENV] = "/x"
         _, _, err = self.ais(BLANK, "--dry-run")
         self.assertEqual(err.count("removed inherited " + CONFIG_DIR_ENV), 1)
+
+    def test_setup_second_mkdir_failure_removes_first_folder(self):
+        real = Path.mkdir
+        calls = []
+
+        def flaky(path, *a, **k):
+            calls.append(path)
+            if len(calls) == 2:
+                raise PermissionError("denied")
+            real(path, *a, **k)
+        with mock.patch("pathlib.Path.mkdir", flaky):
+            code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 73)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse((self.home / ".claude-accounts").exists())

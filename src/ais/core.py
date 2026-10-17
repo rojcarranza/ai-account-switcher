@@ -559,24 +559,24 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     else:
         made = []  # type: List[Path]
         try:
-            for d in cred_dirs:
-                try:
-                    d.mkdir(mode=0o700)
-                except FileExistsError:  # it appeared since the listing: leave it as it is
-                    if d.is_dir():
-                        continue
-                    raise
-                made.append(d)
-                d.chmod(0o700)  # the umask must not decide the mode
-        except OSError as e:
-            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (d, e))
-        keep = {k: config[k] for k in ("cross_account_ack", "menu_privacy")}
+            try:
+                for d in cred_dirs:
+                    try:
+                        d.mkdir(mode=0o700)
+                    except FileExistsError:  # it appeared since the listing: leave it as it is
+                        if d.is_dir():
+                            continue
+                        raise
+                    made.append(d)
+                    d.chmod(0o700)  # the umask must not decide the mode
+            except OSError as e:
+                raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (d, e))
+            keep = {k: config[k] for k in ("cross_account_ack", "menu_privacy")}
 
-        def fn(d: dict) -> dict:
-            out = dict(config)
-            out.update({k: d.get(k, v) for k, v in keep.items()})
-            return out
-        try:
+            def fn(cur: dict) -> dict:
+                out = dict(config)
+                out.update({k: cur.get(k, v) for k, v in keep.items()})
+                return out
             ctx.store.update_json("config.json", fn)
         except (AisError, OSError):
             for d in reversed(made):  # undo only what this run created, never recursively
