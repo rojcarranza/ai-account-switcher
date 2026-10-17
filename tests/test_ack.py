@@ -46,6 +46,13 @@ class AckTest(SwitchCase):
         self.assertIn("full transcript", err)
         self.assertIn("Personal", err)
 
+    def test_ack_keeps_config_readable(self):
+        self.last_used("personal")
+        code, _, err = self.ais("switch", stdin="y\n")
+        self.assertEqual(code, 0, err)
+        text = (self.ais_dir / "config.json").read_text()
+        self.assertIn('\n  "accounts": {\n', text)  # indent=2, one key per line
+
     def test_ack_declined_65(self):
         self.last_used("personal")
         before = self.config()

@@ -146,6 +146,15 @@ def _repo_roots(folder: Path) -> List[Path]:
     return roots
 
 
+_FRACTION = re.compile(r"\.(\d+)")
+
+
+def _parse_time(stamp: str) -> datetime:
+    # 3.9 fromisoformat takes no "Z" and only 3 or 6 fraction digits: pad or cut to 6
+    stamp = _FRACTION.sub(lambda m: "." + (m.group(1) + "00000")[:6], stamp.replace("Z", "+00:00"), count=1)
+    return datetime.fromisoformat(stamp)
+
+
 TITLE_MAX = 60
 
 
@@ -251,9 +260,8 @@ class ClaudeProvider:
                 for line in f:
                     try:
                         d = json.loads(line)
-                        # 3.9 fromisoformat does not take "Z"; a naive time has no defined zone: skip it
-                        t = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00"))
-                        if t.tzinfo is None:
+                        t = _parse_time(d["timestamp"])
+                        if t.tzinfo is None:  # a naive time has no defined zone: skip it
                             continue
                     except (ValueError, TypeError, KeyError, AttributeError):
                         continue

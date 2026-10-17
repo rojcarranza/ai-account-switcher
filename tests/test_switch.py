@@ -221,6 +221,91 @@ class SwitchTest(SwitchCase):
         self.assertIn("outside", err)
         self.assertIsNone(self.argv())
 
+    def test_session_folder_symlink_outside_home_64(self):
+        outside = Path(os.path.realpath(str(self.home))).parent  # a real folder outside HOME
+        (self.home / "escape").symlink_to(outside)
+        self.add_session(OTHER, self.home / "escape", "escape task", 1000)
+        code, _, err = self.ais("switch", "--session", OTHER, "work")
+        self.assertEqual(code, 64)
+        self.assertIn("outside", err)
+        self.assertIsNone(self.argv())
+
+    def test_session_folder_regular_file_or_relative_66(self):
+        (self.home / "afile").write_text("x")
+        for folder in (self.home / "afile", ".", "./proj"):  # relative: never resolved against our cwd
+            self.add_session(OTHER, folder, "bad folder", 1000)
+            code, _, err = self.ais("switch", "--session", OTHER, "work")
+            self.assertEqual(code, 66, folder)
+        self.assertIsNone(self.argv())
+
+    def test_outside_folder_message_is_cleaned(self):
+        bad = "/tmp/x\x1b]0;pwned\x07y"
+        with mock.patch("os.path.realpath", lambda p: bad if p == bad else os.path.abspath(p)), \
+                mock.patch("pathlib.Path.is_dir", lambda p: True):
+            self.add_session(OTHER, bad, "esc task", 1000)
+            code, _, err = self.ais("switch", "--session", OTHER, "work")
+        self.assertEqual(code, 64)
+        self.assertIn("outside", err)
+        self.assertNotIn("\x1b", err)
+        self.assertNotIn("\x07", err)
+
+    def test_non_string_last_used_is_unknown(self):
+        for value in (["work"], {"a": 1}, 3, None):
+            (self.ais_dir / "state.json").write_text(json.dumps(
+                {"sessions": {str(self.transcript): {"account": value, "at": "t"}}}))
+            code, _, err = self.ais("switch")
+            self.assertEqual(code, 64, value)
+            self.assertIn("ais switch <account>", err)
+
+    def test_spawn_failure_restores_state_and_logs_error(self):
+        os.environ["PATH"] = str(self.home / "nobin") + os.pathsep + "/usr/bin:/bin"
+        self.last_used("work")
+        before = (self.ais_dir / "state.json").read_text()
+        code, _, err = self.ais("switch", "work")
+        self.assertEqual(code, 69)
+        self.assertEqual(json.loads((self.ais_dir / "state.json").read_text()), json.loads(before))
+        self.assertEqual([(x["command"], x["account"], x["session_id"], x["result"]) for x in self.log_lines()],
+                         [("switch", "work", UUID, "error 69")])
+        # no previous entry: the record is removed again
+        (self.ais_dir / "state.json").unlink()
+        code, _, _ = self.ais("switch", "work")
+        self.assertEqual(code, 69)
+        self.assertEqual(self.state().get("sessions"), {})
+
+    def test_tool_time_excludes_prompts(self):
+        real = time.monotonic
+        offset = [0.0]
+
+        class SlowHuman(io.StringIO):
+            def readline(inner, *a):
+                offset[0] += 1000  # the human takes 1000 s to answer each prompt
+                return inner.answers.pop(0)
+
+        stdin = SlowHuman()
+        stdin.answers = ["1\n", "y\n"]  # pick the session, then acknowledge personal->work
+        self.last_used("personal")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                mock.patch("sys.stdin", stdin), mock.patch("time.monotonic", lambda: real() + offset[0]):
+            code = cli.main(["switch", "--pick", "work"])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertEqual(offset[0], 2000)
+        self.assertLess(self.log_lines()[0]["tool_seconds"], 1000)
+
+    def test_limit_time_odd_fraction_digits(self):
+        from ais.providers.base import Session
+        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+        cases = {"2026-10-16T11:59:00.5Z": 60.5 - 0.5, "2026-10-16T11:59:00.25Z": 60.5 - 0.25,
+                 "2026-10-16T11:59:00.1234Z": 60.5 - 0.1234, "2026-10-16T11:59:00.12345Z": 60.5 - 0.12345,
+                 "2026-10-16T11:59:00Z": 60.5, "2026-10-16T11:59:00.1234567Z": 60.5 - 0.123456}
+        for stamp, want in cases.items():
+            self.transcript.write_text(
+                json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": stamp}) + "\n"
+                + json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:00.5Z"}) + "\n")
+            got = ClaudeProvider().limit_time(Session(UUID, self.proj, self.transcript, "", 0.0), launch)
+            self.assertIsNotNone(got, stamp)
+            self.assertAlmostEqual(got, want, places=5, msg=stamp)
+
     def test_session_not_found_66(self):
         code, _, err = self.ais("switch", "--session", MISSING, "work")
         self.assertEqual(code, 66)

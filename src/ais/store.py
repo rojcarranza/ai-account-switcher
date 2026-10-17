@@ -128,7 +128,7 @@ class Store:
             try:
                 fd, tmp = tempfile.mkstemp(dir=str(self.dir), prefix="." + name + ".")
                 with os.fdopen(fd, "w") as f:
-                    json.dump(new, f)
+                    json.dump(new, f, indent=2)  # config.json is hand-edited: keep it readable
                     f.flush()
                     _sync(f.fileno())
                 os.replace(tmp, str(path))

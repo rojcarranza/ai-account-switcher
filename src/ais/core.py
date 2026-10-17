@@ -124,16 +124,29 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
     return rc
 
 
-def _record_last_used(store: Store, session: Session, account: str) -> None:
+def _record_last_used(store: Store, session: Session, account: Optional[str], restore: Any = None) -> Any:
+    """Set the session's last-used entry (or, with account None, put `restore` back; None removes it).
+
+    Returns the entry that was there before, or None.
+    """
     at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    previous = []  # type: List[Any]
 
     def fn(d: dict) -> dict:
         sessions = d.setdefault("sessions", {})
         if not isinstance(sessions, dict):
             raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (store.dir / "state.json"))
-        sessions[str(session.transcript)] = {"account": account, "at": at}
+        key = str(session.transcript)
+        previous.append(sessions.get(key))
+        if account is not None:
+            sessions[key] = {"account": account, "at": at}
+        elif restore is not None:
+            sessions[key] = restore
+        else:
+            sessions.pop(key, None)
         return d
     store.update_json("state.json", fn)
+    return previous[0]
 
 
 _SWITCH_HINT = "use `ais switch` to resume a session"
@@ -212,7 +225,7 @@ def _last_used(ctx: Context, session: Session) -> Optional[str]:
     sessions = ctx.store.read_json("state.json").get("sessions")
     rec = sessions.get(str(session.transcript)) if isinstance(sessions, dict) else None
     name = rec.get("account") if isinstance(rec, dict) else None
-    return name if name in ctx.config.accounts else None
+    return name if isinstance(name, str) and name in ctx.config.accounts else None
 
 
 def _resolve_session(ctx: Context, provider: Provider, pick: bool,
@@ -230,10 +243,13 @@ def _resolve_session(ctx: Context, provider: Provider, pick: bool,
         if s is None:
             raise AisError(EXIT_NO_INPUT, "session %s not found" % session_id)
         real = Path(os.path.realpath(str(s.folder)))
-        if not real.is_dir():
+        if not os.path.isabs(str(s.folder)) or not real.is_dir():  # relative: would resolve against our cwd
             raise AisError(EXIT_NO_INPUT, "the folder of session %s does not exist: %s"
                            % (s.id, _clean(str(s.folder))))
-        return s, guards.safe_path(real, [ctx.store.home])
+        try:
+            return s, guards.safe_path(real, [ctx.store.home])
+        except AisError as e:  # its message holds the raw transcript folder
+            raise AisError(e.code, "%s is outside the allowed folders" % _clean(str(real)))
     if pick:
         found = provider.recent_sessions(PICK_COUNT, cache, ctx.cwd)
         if not found:
@@ -248,6 +264,7 @@ def _resolve_session(ctx: Context, provider: Provider, pick: bool,
         answer = _ask("Resume which session? [1-%d] " % len(found))
         if not (answer.isascii() and answer.isdigit() and 1 <= int(answer) <= len(found)):
             raise AisError(EXIT_USAGE, "not a listed number: %r" % answer)
+        ctx.started = time.monotonic()  # FR-3.14 tool time excludes the human's answer
         return found[int(answer) - 1], ctx.cwd
     s = provider.newest_session(ctx.cwd, cache)
     if s is None:
@@ -280,6 +297,7 @@ def _acknowledge(ctx: Context, last: Optional[str], target: Account, session: Se
           file=sys.stderr)
     if _ask("Continue? [y/N] ").lower() not in ("y", "yes"):
         raise AisError(EXIT_DECLINED, "not acknowledged; claude was not started")
+    ctx.started = time.monotonic()  # FR-3.14 tool time excludes the human's answer
 
     def fn(d: dict) -> dict:
         acks = d.setdefault("cross_account_ack", {})
@@ -314,14 +332,23 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
             raise AisError(EXIT_OPEN, "Claude is still running in %s (PID %d). Type /exit there, then run "
                            "`ais switch` again." % (_clean(str(folder)), pid))
         ctx.store.snapshot(provider.snapshot_paths(s), s.id)  # warns and returns None when impossible
-        _record_last_used(ctx.store, s, acc.name)
+        previous = _record_last_used(ctx.store, s, acc.name)
         launched = time.time()
 
         def on_started() -> None:
             spawned.append(time.monotonic())
             held.close()  # FR-3.6: mutex held from the open check until claude has started
 
-        rc = _spawn(ctx, provider, cmd, env, acc.label, folder, on_started)
+        try:
+            rc = _spawn(ctx, provider, cmd, env, acc.label, folder, on_started)
+        except AisError as e:  # claude never ran: undo the record, log, keep the spawn error primary
+            for undo in (lambda: _record_last_used(ctx.store, s, None, previous),
+                         lambda: ctx.store.log("switch", acc.name, s.id, "error %d" % e.code)):
+                try:
+                    undo()
+                except (AisError, OSError) as u:
+                    guards.print_warnings([getattr(u, "message", str(u))])
+            raise
     try:  # claude already ran: its exit code wins over a failed measurement or log write
         ctx.store.log("switch", acc.name, s.id, "exit %d" % rc, round(spawned[0] - ctx.started, 3),
                       provider.limit_time(s, launched))
