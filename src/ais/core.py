@@ -833,9 +833,10 @@ def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     exists = os.path.lexists(target)
     if exists and not stat.S_ISREG(os.lstat(target).st_mode):  # never follow a symlink or replace a folder
         raise AisError(EXIT_CANNOT_WRITE, "%s is not a regular file; remove it by hand" % target)
+    local_bin = "%s/.local/bin" % home
+    dirs = [local_bin] + ([claude_dir] if claude_dir != local_bin else [])
     # /usr/sbin: lsof lives there on macOS, and render needs it (#42)
-    body = ('#!/bin/sh\nexport PATH="%s/.local/bin:%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n'
-            % (home, claude_dir))
+    body = ('#!/bin/sh\nexport PATH="%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n' % ":".join(dirs))
     print("%s %s%s:\n%s" % ("Would write" if dry_run else "Will write", target, " (replace)" if exists else "", body))
     if not (home / ".local" / "bin" / "ais").is_file():
         print("ais: warning: %s is missing; the menu finds no ais until `make install`"
