@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, NoReturn, Optional
 
 from ais import __version__, core, providers
-from ais.accounts import EXIT_USAGE, load_config
+from ais.accounts import EXIT_USAGE, Config, load_config
 from ais.errors import AisError
 from ais.store import Store
 
@@ -37,16 +37,18 @@ def _parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="show credentials, the newest session and the self-check",
                             allow_abbrev=False)
     status.add_argument("--json", action="store_true")
+    setup = sub.add_parser("setup", help="guided first-time setup", allow_abbrev=False)
+    setup.add_argument("--dry-run", action="store_true")
     return p
 
 
-def _context(started: float) -> core.Context:
+def _context(started: float, config: Optional[Config] = None) -> core.Context:
     store = Store(Path.home())
     try:
         cwd = Path.cwd()
     except OSError:
         raise AisError(66, "the current folder no longer exists")
-    return core.Context(store, load_config(store, providers.REGISTRY),
+    return core.Context(store, config or load_config(store, providers.REGISTRY),
                         lambda a: providers.get(a.provider), dict(os.environ), cwd, started=started)
 
 
@@ -71,6 +73,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise AisError(EXIT_USAGE, "--pick and --session cannot be combined")
             return core.cmd_switch(_context(started), ns.account, ns.pick, ns.session,
                                    ns.allow_api_key, ns.dry_run)
+        if ns.command == "setup":  # no config exists yet: a placeholder one
+            return core.cmd_setup(_context(started, Config({}, "", {}, False)), ns.dry_run)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)

@@ -1,0 +1,159 @@
+"""FR-2.3 to FR-2.7: `ais setup` asks, lists what it creates, then writes and signs in."""
+import contextlib
+import io
+import json
+import os
+import stat
+from unittest import mock
+
+from ais import cli
+from ais.providers.claude import BILLING_ENV, CONFIG_DIR_ENV, ClaudeProvider
+from tests.helpers import TempHomeCase
+
+SLOT = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"'
+BLANK = "\n" * 5  # default name, label, extra name, label, credDir
+
+
+def tree(root):
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
+class SetupTest(TempHomeCase):
+    def setUp(self):
+        super().setUp()
+        self.work = str(self.home / ".claude-accounts" / "work")
+        self.calls = self.home / "calls.log"
+        os.environ["FAKE_CALL_LOG"] = str(self.calls)
+        self.addCleanup(os.environ.pop, "FAKE_CALL_LOG", None)
+        for k in BILLING_ENV + (SLOT, CONFIG_DIR_ENV, "FAKE_CLAUDE_LOGIN_RC", "FAKE_CLAUDE_LOGGED_OUT_SLOT"):
+            if k in os.environ:
+                saved = os.environ.pop(k)
+                self.addCleanup(os.environ.__setitem__, k, saved)
+            self.addCleanup(os.environ.pop, k, None)
+        roots = {"home": self.home, "managed": self.home / "managed", "managed_prefs": self.home / "prefs"}
+        patch = mock.patch.object(ClaudeProvider, "default_settings_roots", lambda _self: roots)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def ais(self, stdin, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                mock.patch("sys.stdin", io.StringIO(stdin)):
+            code = cli.main(["setup"] + list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def calls_text(self):
+        return self.calls.read_text() if self.calls.exists() else ""
+
+    def config(self):
+        return json.loads((self.ais_dir / "config.json").read_text())
+
+    def test_setup_lists_files_and_declines_65_writes_nothing(self):
+        before = tree(self.home)
+        code, out, err = self.ais(BLANK + "n\n")
+        self.assertEqual(code, 65)
+        text = out + err
+        for part in ("config.json", ".lock", "cache.json", "ais.log", self.work):
+            self.assertIn(part, text)
+        self.assertEqual(tree(self.home), before)
+        self.assertFalse(self.ais_dir.exists())
+        self.assertEqual(self.calls_text(), "")
+        code, _, _ = self.ais(BLANK)  # no answer at all is not a yes
+        self.assertEqual((code, tree(self.home)), (65, before))
+
+    def test_setup_offers_existing_claude_accounts_folders(self):
+        root = self.home / ".claude-accounts"
+        (root / "zeta").mkdir(parents=True)
+        (root / "alpha").mkdir()
+        code, out, err = self.ais("\n\n\n\n2\ny\n")  # 2 = zeta (sorted: alpha, zeta)
+        self.assertEqual(code, 0)
+        text = out + err
+        self.assertIn("1) %s" % (root / "alpha"), text)
+        self.assertIn("2) %s" % (root / "zeta"), text)
+        self.assertEqual(self.config()["accounts"]["work"]["credDir"], str(root / "zeta"))
+        self.assertIn("slot=%s" % (root / "zeta"), self.calls_text())
+
+    def test_setup_defaults_write_config_schema(self):
+        code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.config(), {"version": 1, "default": "personal", "accounts": {
+            "personal": {"label": "Personal", "provider": "claude", "credDir": None},
+            "work": {"label": "Work", "provider": "claude", "credDir": self.work}},
+            "cross_account_ack": {}, "menu_privacy": False})
+        self.assertEqual(stat.S_IMODE((self.ais_dir / "config.json").stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.ais_dir.stat().st_mode), 0o700)
+
+    def test_setup_keeps_acks_and_privacy_of_existing_config(self):
+        self.ais_dir.mkdir(parents=True)
+        (self.ais_dir / "config.json").write_text(json.dumps(
+            {"cross_account_ack": {"a->b": "2026-01-01"}, "menu_privacy": True}))
+        code, out, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        self.assertIn("(replace)", out + err)
+        self.assertEqual(self.config()["cross_account_ack"], {"a->b": "2026-01-01"})
+        self.assertIs(self.config()["menu_privacy"], True)
+        (self.ais_dir / "config.json").write_text("{nope")
+        code, _, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 78)
+        self.assertIn("config.json", err)
+
+    def test_setup_logs_in_only_missing_accounts(self):
+        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.work
+        code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls_text(), (
+            "claude auth status --json\nslot=<unset>\n"
+            "claude auth status --json\nslot=%s\n"
+            "claude auth login\nslot=%s\n" % (self.work, self.work)))
+        os.environ["FAKE_CLAUDE_LOGIN_RC"] = "3"
+        code, out, err = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 3)
+        self.assertIn("ais login work", out + err)
+
+    def test_setup_never_writes_inside_cred_dir(self):
+        code, _, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        d = self.home / ".claude-accounts" / "work"
+        self.assertEqual(list(d.iterdir()), [])
+        self.assertEqual(stat.S_IMODE(d.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(d.parent.stat().st_mode), 0o700)
+
+    def test_setup_path_line_only_when_needed(self):
+        bin_dir = str(self.home / ".local" / "bin")
+        os.environ["PATH"] = bin_dir + "/" + os.pathsep + os.environ["PATH"]
+        _, out, _ = self.ais(BLANK + "y\n")
+        self.assertNotIn(".local/bin", out)
+        os.environ["PATH"] = os.environ["PATH"].replace(bin_dir + "/", "~/.local/bin")
+        _, out, _ = self.ais(BLANK + "y\n")
+        self.assertNotIn(PATH_LINE, out)
+        os.environ["PATH"] = os.environ["PATH"].replace("~/.local/bin", "/usr/bin")
+        _, out, _ = self.ais(BLANK + "y\n")
+        self.assertIn(PATH_LINE, out)
+        self.assertIn("~/.zshrc", out)
+        self.assertNotIn("CLAUDE_SECURESTORAGE_CONFIG_DIR=", out.replace("slot=", ""))
+        self.assertFalse((self.home / ".zshrc").exists())
+
+    def test_setup_prints_shared_memory_statement(self):
+        code, out, _ = self.ais(BLANK + "y\n")
+        self.assertEqual(code, 0)
+        self.assertIn(ClaudeProvider.shared_data_note, out)
+        self.assertIn("every session", out)
+        self.assertIn("not only on resume", out)
+
+    def test_setup_dry_run(self):
+        before = tree(self.home)
+        code, out, _ = self.ais(BLANK, "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(tree(self.home), before)
+        self.assertEqual(self.calls_text(), "")
+        self.assertIn('"credDir": null', out)
+        self.assertIn("claude auth status --json", out)
+        self.assertIn("%s=%s claude auth login" % (SLOT, self.work), out)
+        self.assertIn(ClaudeProvider.shared_data_note, out)
+
+    def test_setup_bad_input_exits_64(self):
+        for stdin in ("Bad\n", "same\n\nsame\n", "\n\nwork\n\n/etc\n", "\n\nwork\n\nrel/dir\n"):
+            code, _, err = self.ais(stdin + "y\n")
+            self.assertEqual(code, 64, stdin)
+            self.assertFalse(self.ais_dir.exists())

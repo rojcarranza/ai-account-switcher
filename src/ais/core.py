@@ -10,13 +10,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ais import guards, procs, runner
-from ais.accounts import EXIT_USAGE, Account, Config
+from ais.accounts import EXIT_USAGE, NAME_RE, Account, Config, _check_cred_dir, load_config
 from ais.errors import AisError
+from ais.providers import DEFAULT_PROVIDER, REGISTRY
 from ais.providers.base import Provider, Session
-from ais.store import EXIT_CONFIG, Store
+from ais.store import EXIT_CANNOT_WRITE, EXIT_CONFIG, Store
 
 CREDENTIAL_TTL = 600
 EXIT_DECLINED = 65
@@ -459,4 +460,117 @@ def cmd_status(ctx: Context, as_json: bool) -> int:
     if d["self_check"]["ok"]:
         print("self-check: ok")
     print("ais cannot see which account each slot is signed in to; sign in to the matching account in each")
+    return 0
+
+
+SETUP_FILES = ("config.json", ".lock", "cache.json", "ais.log")
+
+
+def _missing_dirs(path: Path) -> List[Path]:
+    """The folders mkdir -p would create for path, outermost first."""
+    out = []  # type: List[Path]
+    while not path.exists():
+        out.append(path)
+        path = path.parent
+    return out[::-1]
+
+
+def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-2.3 to FR-2.7: ask, list what will be created, ask for a yes, then write and sign in."""
+    it = iter(answers) if answers is not None else None
+
+    def ask(prompt: str, default: str = "") -> str:
+        a = (next(it, "") if it is not None else _ask(prompt + (" [%s]" % default if default else "") + ": ")).strip()
+        return a or default
+
+    home = ctx.store.home
+    existing = ctx.store.read_json("config.json")  # 78 when it is not valid JSON: never drop acks
+    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+    names = []  # type: List[str]
+    picked = []  # type: List[Account]
+    for extra in (False, True):
+        name = ask("%s account name" % ("Extra" if extra else "Default"), "work" if extra else "personal")
+        if not NAME_RE.fullmatch(name):
+            raise AisError(EXIT_USAGE, "account name %r must match ^[a-z][a-z0-9-]{0,31}$" % name)
+        if name in names:
+            raise AisError(EXIT_USAGE, "account name %r is used twice" % name)
+        names.append(name)
+        label = ask("Label for %s" % name, name[0].upper() + name[1:])
+        cred = None  # type: Optional[str]
+        if extra:
+            root = home / provider.cred_dir_root
+            found = sorted(p for p in root.glob("*") if p.is_dir()) if root.is_dir() else []
+            for n, p in enumerate(found, 1):
+                print("  %d) %s" % (n, p), file=sys.stderr)
+            a = ask("Folder for %s (number or path)" % name, str(root / name))
+            if a.isdigit() and 1 <= int(a) <= len(found):
+                cred = str(found[int(a) - 1])
+            else:
+                cred = unicodedata.normalize("NFC", str(home / a[2:]) if a.startswith("~/") else a)
+                cred = cred.rstrip("/") or cred
+            try:
+                _check_cred_dir(ctx.store.dir / "config.json", name, cred, os.path.realpath(str(home)))
+            except AisError as e:
+                raise AisError(EXIT_USAGE, e.message)
+        picked.append(Account(name, label, DEFAULT_PROVIDER, cred))
+
+    new_dirs = [] if ctx.store.dir.exists() else _missing_dirs(ctx.store.dir)
+    creates = ["%s/" % d for d in new_dirs]
+    cfg = ctx.store.dir / "config.json"
+    creates += [str(ctx.store.dir / f) + (" (replace)" if f == "config.json" and cfg.exists() else "")
+                for f in SETUP_FILES if f == "config.json" or not (ctx.store.dir / f).exists()]
+    cred_dirs = [d for a in picked if a.cred_dir for d in _missing_dirs(Path(a.cred_dir))]
+    creates += ["%s/ (empty, mode 0700)" % d for d in cred_dirs]
+    print("Setup will create:")
+    for c in creates:
+        print("  " + c)
+    config = {"version": 1, "default": picked[0].name,
+              "accounts": {a.name: {"label": a.label, "provider": a.provider, "credDir": a.cred_dir}
+                           for a in picked},
+              "cross_account_ack": existing.get("cross_account_ack", {}),
+              "menu_privacy": existing.get("menu_privacy", False)}
+    if dry_run:
+        print("config.json would contain:\n" + json.dumps(config, indent=2))
+        for a in picked:
+            env, _ = provider.env_for(a, ctx.env)
+            prefix = provider.describe_env(env)
+            print("%s: check with: %s%s" % (a.name, prefix, shlex.join(provider.auth_status_command())))
+            print("%s: sign in only if logged out: %s%s" % (a.name, prefix, shlex.join(provider.login_command())))
+    elif ask("Create these? [y/N]").lower() not in ("y", "yes"):
+        print("Nothing written.", file=sys.stderr)
+        return EXIT_DECLINED
+    else:
+        try:
+            for d in cred_dirs:
+                d.mkdir(mode=0o700)
+                d.chmod(0o700)  # the umask must not decide the mode
+        except OSError as e:
+            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (d, e))
+        keep = {k: config[k] for k in ("cross_account_ack", "menu_privacy")}
+
+        def fn(d: dict) -> dict:
+            out = dict(config)
+            out.update({k: d.get(k, v) for k, v in keep.items()})
+            return out
+        ctx.store.update_json("config.json", fn)
+        ctx2 = Context(ctx.store, load_config(ctx.store, REGISTRY), ctx.provider_for, ctx.env, ctx.cwd,
+                       ctx.settings_roots, ctx.started)
+        for a in picked:
+            state, _, err = credential_state(ctx2.store, provider, a, False, ctx.env)
+            if state == "unknown":
+                print("%s: could not tell whether it is signed in (%s); run `ais login %s`"
+                      % (a.name, err, a.name))
+            elif state == "no":
+                rc = cmd_login(ctx2, a.name, False)
+                if rc != 0:
+                    print("sign-in of %s exited %d; run `ais login %s` to retry" % (a.name, rc, a.name),
+                          file=sys.stderr)
+                    return rc
+    bin_dir = str(home / ".local" / "bin")
+    on_path = any((str(home / e[2:]) if e.startswith("~/") else e).rstrip("/") == bin_dir
+                  for e in ctx.env.get("PATH", "").split(":"))
+    if not on_path:
+        print("\nAdd this line to ~/.zshrc so your shell finds ais:\n  " + 'export PATH="$HOME/.local/bin:$PATH"'
+              + "\nIt puts ~/.local/bin, where ais is installed, on your PATH.")
+    print("\n" + provider.shared_data_note)
     return 0

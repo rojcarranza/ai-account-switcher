@@ -19,6 +19,8 @@ if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
     sleep "${FAKE_CLAUDE_AUTH_SLEEP:-0}"
     if [ -n "${FAKE_CLAUDE_AUTH_JSON:-}" ]; then
         printf '%s\n' "$FAKE_CLAUDE_AUTH_JSON"
+    elif [ "${FAKE_CLAUDE_LOGGED_OUT_SLOT:-}" = "${CLAUDE_SECURESTORAGE_CONFIG_DIR-<unset>}" ]; then
+        echo '{"loggedIn": false}'
     else
         echo '{"loggedIn": true, "email": "other@example.com", "orgId": "o"}'
     fi
