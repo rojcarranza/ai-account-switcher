@@ -253,8 +253,8 @@ class ClaudeProvider:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
 
     def limit_time(self, session: Session, launched_at: float) -> Optional[float]:
-        """Seconds from a LIMIT_MARKER line that is the last timestamped line before launched_at
-        to the first line at or after it; None when the session did not stop at the limit."""
+        """Seconds from a LIMIT_MARKER line with no later conversation line (user/assistant, not meta)
+        before launched_at to the first line at or after it; None when the session did not stop at the limit."""
         last = None  # type: Optional[float]
         try:
             with open(str(session.transcript), encoding="utf-8", errors="replace") as f:
@@ -268,8 +268,11 @@ class ClaudeProvider:
                         continue
                     if t.timestamp() >= launched_at:
                         return None if last is None else t.timestamp() - last
-                    # only a session that stopped at the limit counts: a later normal line resets it
-                    last = t.timestamp() if all(d.get(k) == v for k, v in LIMIT_MARKER.items()) else None
+                    if all(d.get(k) == v for k, v in LIMIT_MARKER.items()):
+                        last = t.timestamp()
+                    elif d.get("type") in ("user", "assistant") and d.get("isMeta") is not True:
+                        last = None  # the conversation went on after the limit; system/queue/meta lines do not count
+
         except OSError:
             pass
         return None

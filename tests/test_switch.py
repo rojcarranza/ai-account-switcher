@@ -304,6 +304,26 @@ class SwitchTest(SwitchCase):
         self.transcript.write_text("\n".join([normal, marker, "not json", later]) + "\n")  # stopped at the limit
         self.assertEqual(ClaudeProvider().limit_time(s, launch), 3610.0)
 
+    def test_limit_time_ignores_non_conversation_lines_after_marker(self):
+        from ais.providers.base import Session
+        launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+        t = "2026-10-16T11:00:00Z"
+        marker = json.dumps({"type": "assistant", "isApiErrorMessage": True, "error": "rate_limit", "timestamp": t})
+        noise = [json.dumps(d) for d in (
+            {"type": "system", "subtype": "turn_duration", "timestamp": t},
+            {"type": "system", "subtype": "informational", "timestamp": t},
+            {"type": "queue-operation", "operation": "enqueue", "timestamp": t},
+            {"type": "attachment", "timestamp": t},
+            {"type": "user", "isMeta": True, "timestamp": t})]
+        later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
+        s = Session(UUID, self.proj, self.transcript, "", 0.0)
+        self.transcript.write_text("\n".join([marker] + noise + [later]) + "\n")
+        self.assertEqual(ClaudeProvider().limit_time(s, launch), 3610.0)
+        for kind in ("user", "assistant"):  # a conversation line means work went on after the limit
+            convo = json.dumps({"type": kind, "timestamp": "2026-10-16T11:30:00Z"})
+            self.transcript.write_text("\n".join([marker, noise[0], convo, later]) + "\n")
+            self.assertIsNone(ClaudeProvider().limit_time(s, launch), kind)
+
     def test_limit_time_odd_fraction_digits(self):
         from ais.providers.base import Session
         launch = datetime(2026, 10, 16, 12, 0, 0, tzinfo=timezone.utc).timestamp()
