@@ -73,6 +73,9 @@ class UninstallTest(TempHomeCase):
 
     def test_uninstall_keeps_claude_data(self):
         self.add_snapshots()
+        log = self.home / "security.log"
+        os.environ["FAKE_CALL_LOG"] = str(log)
+        self.addCleanup(os.environ.pop, "FAKE_CALL_LOG", None)
         code, out, _ = self.ais("y\ny\n")
         self.assertEqual(code, 0)
         self.assertEqual((self.claude / "keep.txt").read_text(), "keep")
@@ -80,11 +83,6 @@ class UninstallTest(TempHomeCase):
         self.assertTrue((self.home / ".claude-accounts" / "work").is_dir())
         self.assertIn(self.work, out)
         self.assertIn(keychain_service(self.work), out)  # the hint; `security` is never run
-        log = self.home / "security.log"
-        os.environ["FAKE_CALL_LOG"] = str(log)
-        self.addCleanup(os.environ.pop, "FAKE_CALL_LOG", None)
-        self.ais_dir.mkdir()
-        self.assertEqual(self.ais("y\n")[0], 0)
         self.assertFalse(log.exists() and log.read_text())  # `security` never ran
 
     def test_uninstall_removes_recorded_plugin_only(self):
@@ -185,6 +183,9 @@ class UninstallTest(TempHomeCase):
         self.assertEqual(self.ais("y\n")[0], 0)
         self.assertFalse(self.ais_dir.is_symlink())
         self.assertEqual((real / "f").read_text(), "f")
+        self.ais_dir.write_text("a file")
+        self.assertEqual(self.ais("y\n")[0], 0)
+        self.assertFalse(os.path.lexists(str(self.ais_dir)))
 
     def test_uninstall_lists_local_bin(self):
         code, out, _ = self.ais("n\n")

@@ -654,8 +654,8 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
               "must be removed by hand", file=sys.stderr)
     entries = []  # type: List[Path]
-    if store.dir.is_symlink():
-        entries = [store.dir]  # unlinked, never followed
+    if store.dir.is_symlink() or (os.path.lexists(str(store.dir)) and not store.dir.is_dir()):
+        entries = [store.dir]  # a symlink or plain file: unlinked, never followed
     elif store.dir.is_dir():
         try:
             entries = sorted(store.dir.iterdir())
