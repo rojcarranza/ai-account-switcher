@@ -27,7 +27,8 @@ def _sync(fd: int) -> None:
 
 class Store:
     def __init__(self, home: Path):
-        self.dir = Path(home) / ".config" / "ais"
+        self.home = Path(home)
+        self.dir = Path(home) /".config" / "ais"
         self._held = set()  # lock names held by this instance (flock is not re-entrant)
 
     def _ensure_dir(self) -> None:
