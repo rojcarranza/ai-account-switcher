@@ -8,7 +8,7 @@ from ais.errors import AisError
 from ais.store import EXIT_CONFIG, Store
 
 EXIT_USAGE = 64
-NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,31}")
 
 
 @dataclass
@@ -31,7 +31,7 @@ class Config:
     menu_privacy: bool
 
     def get(self, name: str) -> Account:
-        if not NAME_RE.match(name) or name not in self.accounts:
+        if not NAME_RE.fullmatch(name) or name not in self.accounts:
             raise AisError(EXIT_USAGE, "unknown account %r; defined accounts: %s"
                            % (name, ", ".join(sorted(self.accounts))))
         return self.accounts[name]
@@ -83,7 +83,7 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
     accounts = {}  # type: Dict[str, Account]
     for name in sorted(raw_accounts, key=lambda n: n != default):  # default first: its errors win
         a = raw_accounts[name]
-        if not NAME_RE.match(name):
+        if not NAME_RE.fullmatch(name):
             raise bad("account %s: id must match ^[a-z][a-z0-9-]{0,31}$" % name)
         if not isinstance(a, dict):
             raise bad("account %s: must be an object" % name)
@@ -91,7 +91,7 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
         if not isinstance(label, str) or not label:
             raise bad("account %s: label must be a non-empty string" % name)
         provider = a.get("provider")
-        if provider not in providers:
+        if not isinstance(provider, str) or provider not in providers:
             raise bad("account %s: unknown provider %r; registered providers: %s"
                       % (name, provider, ", ".join(sorted(providers))))
         cred_dir = a.get("credDir")

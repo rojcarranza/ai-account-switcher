@@ -1,4 +1,5 @@
 import json
+import tempfile
 import unicodedata
 
 from ais.accounts import load_config
@@ -63,6 +64,24 @@ class AccountsTest(TempHomeCase):
         self.assertIn("work", cm.exception.message)
         self.assertIn("NFC", cm.exception.message)
 
+    def test_get_rejects_trailing_newline(self):
+        with self.assertRaises(AisError) as cm:
+            self.load(self.cfg()).get("work\n")
+        self.assertEqual(cm.exception.code, 64)
+
+    def test_cred_dir_symlink_out_of_home_rejected(self):
+        with tempfile.TemporaryDirectory() as outside:
+            link = self.home / "link"
+            link.symlink_to(outside)
+            with self.assertRaises(AisError) as cm:
+                self.load(self.work(credDir=str(link)))
+        self.assertEqual(cm.exception.code, 78)
+        self.assertIn("outside", cm.exception.message)
+
+    def test_cred_dir_equal_to_home_accepted(self):
+        c = self.load(self.work(credDir=str(self.home)))
+        self.assertEqual(c.accounts["work"].cred_dir, str(self.home))
+
     def test_config_errors_exit_78(self):
         h = str(self.home)
         no_version = self.cfg()
@@ -78,6 +97,10 @@ class AccountsTest(TempHomeCase):
             ("trailing slash", self.work(credDir=h + "/x/"), "work", "end with"),
             ("outside home", self.work(credDir="/etc/claude"), "work", "outside"),
             ("unknown provider", self.work(provider="gpt"), "work", "claude"),
+            ("unhashable provider", self.work(provider=["claude"]), "work", "claude"),
+            ("id with trailing newline", self.cfg(accounts={
+                "work\n": {"label": "x", "provider": "claude", "credDir": h + "/w"},
+                "personal": {"label": "x", "provider": "claude", "credDir": None}}), "work", "^[a-z]"),
             ("unknown version", self.cfg(version=2), None, "version"),
             ("missing version", no_version, None, "version"),
             ("broken json", "{not json", None, "invalid JSON"),
@@ -101,7 +124,7 @@ class AccountsTest(TempHomeCase):
                 else:
                     self.write(c)
                 with self.assertRaises(AisError) as cm:
-                    load_config(Store(self.home), PROVIDERS)
+                    load_config(Store(self.home), frozenset(PROVIDERS))
                 self.assertEqual(cm.exception.code, 78)
                 if who:
                     self.assertIn(who, cm.exception.message)
