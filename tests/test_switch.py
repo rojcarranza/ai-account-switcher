@@ -152,13 +152,14 @@ class SwitchTest(SwitchCase):
         self.assertEqual(code, 5)
         self.assertEqual(self.log_lines()[0]["result"], "exit 5")
 
-    def test_switch_unknown_last_used_requires_account_64(self):
+    def test_switch_unknown_last_used_assumes_default_account(self):
+        # a session started with plain `claude` has no record: it ran on the default account
+        self.write_config(acks={"personal->work": "2026-10-01"})
         code, _, err = self.ais("switch")
-        self.assertEqual(code, 64)
-        self.assertIn("ais switch <account>", err)
-        self.assertIn("personal, work", err)
-        self.assertIsNone(self.argv())
-        self.assertEqual(self.snapshots(), [])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertIn("assuming it last ran on Personal", err)
+        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
 
     def test_switch_named_same_account_no_ack_prompt(self):
         self.last_used("work")
@@ -250,12 +251,13 @@ class SwitchTest(SwitchCase):
         self.assertNotIn("\x07", err)
 
     def test_non_string_last_used_is_unknown(self):
+        self.write_config(acks={"personal->work": "2026-10-01"})
         for value in (["work"], {"a": 1}, 3, None):
             (self.ais_dir / "state.json").write_text(json.dumps(
                 {"sessions": {str(self.transcript): {"account": value, "at": "t"}}}))
             code, _, err = self.ais("switch")
-            self.assertEqual(code, 64, value)
-            self.assertIn("ais switch <account>", err)
+            self.assertEqual((code, self.slot()), (0, "slot=" + self.work), value)
+            self.assertIn("assuming it last ran on Personal", err)
 
     def test_spawn_failure_restores_state_and_logs_error(self):
         os.environ["PATH"] = str(self.home / "nobin") + os.pathsep + "/usr/bin:/bin"

@@ -6,7 +6,7 @@ macOS only. Python 3.9+ standard library, shipped as one file (a Python zipapp).
 
 ## Status
 
-Early. Only the walking skeleton is built: `ais --version` works and every other command exits 64. The build gates (the spike on a real Mac) are done; see [docs/spike-results.md](docs/spike-results.md). The commands below under "Planned" come next, task by task, from [the plan](docs/superpowers/plans/2026-10-16-ais-mvp.md).
+All MVP commands are built and tested (see [docs/progress.md](docs/progress.md)). The manual checks and measurements on a real Mac are still open ([#41](https://github.com/rojcarranza/ai-account-switcher/issues/41)). The SwiftBar menu has a known bug ([#42](https://github.com/rojcarranza/ai-account-switcher/issues/42)).
 
 ## Install
 
@@ -26,46 +26,38 @@ It prints `ais 0.1.0`. If the shell cannot find `ais`, add `~/.local/bin` to `PA
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## Switching accounts by hand (works today)
+## Use
 
-The spike proved the mechanism `ais` will automate. Each account has its own Keychain slot, chosen by the `CLAUDE_SECURESTORAGE_CONFIG_DIR` variable. Every account shares `~/.claude`, so any account can resume any session.
-
-1. Sign in to the second account once, in its own slot:
-   ```bash
-   CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude
-   ```
-   Type `/login`, sign in with the second account, then `/exit`. Your normal `claude` keeps the first account.
-2. When the first account hits its limit, type `/exit`. Claude prints `claude --resume <session-id>`.
-3. In the same folder, resume that session on the other account:
-   ```bash
-   CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude --resume <session-id>
-   ```
-
-Do not run `/login` for the second account inside a plain `claude` session: that replaces the first account's login. Do not set `CLAUDE_CONFIG_DIR`: it splits the shared `~/.claude`. `claude auth status` shows the same email for both slots (it reads the shared `~/.claude.json`), so it cannot tell you which account a slot holds.
-
-To open a second Claude Desktop window for the other account:
+Set up once. `ais setup` lists what it will create and asks before writing anything. It names the accounts (`personal` on Claude Code's normal login, `work` in its own Keychain slot), reuses any `~/.claude-accounts/*` folder, and opens the sign-in only for an account that is not signed in yet:
 
 ```bash
-open -n -a Claude --args --user-data-dir="$HOME/Library/Application Support/Claude-ais-work"
+ais setup
 ```
 
-Sign in with the second account the first time. Run it only once: a second launch on the same folder starts a duplicate copy.
+When an account hits its usage limit, type `/exit` in Claude, then in the same folder:
 
-## Planned commands
+```bash
+ais switch
+```
 
-| Command | What it will do |
+That resumes the newest session in this folder on the other account. A session started with plain `claude` counts as last used on the default account, so this works the first time too. Run `/compact` before switching to send less.
+
+| Command | What it does |
 |---|---|
 | `ais setup` | Guided setup: name the accounts, sign in where needed |
 | `ais login <account>` | Sign in to one account in its own slot |
-| `ais switch [account]` | Resume the newest session in this folder on the other account |
+| `ais switch [account]` | Resume the newest session in this folder on the other (or named) account |
 | `ais switch --pick` | Choose one of the 5 most recent sessions |
-| `ais run [account] [claude args]` | Start a new `claude` session on an account |
+| `ais switch --session <id> [account]` | Resume one session by ID, from any folder |
+| `ais run [account] [-- claude args]` | Start a new `claude` session on an account |
 | `ais status` | Accounts, sign-in state, newest session |
 | `ais desktop <account>` | Open that account's Claude Desktop window |
 | `ais menu install` | Optional SwiftBar menu bar status and one-click resume |
 | `ais uninstall` | Remove ais's own files; never touches `~/.claude` or the Keychain |
 
-Exact behaviour and exit codes: [docs/requirements.md](docs/requirements.md).
+Most commands take `--dry-run` to show what they would do. Exact behaviour and exit codes: [docs/requirements.md](docs/requirements.md).
+
+Do not run `/login` for the other account inside a plain `claude` session: that replaces the default account's login. Use `ais login <account>`. `claude auth status` shows the same email for both slots (it reads the shared `~/.claude.json`), so it cannot tell you which account a slot holds.
 
 ## Development
 

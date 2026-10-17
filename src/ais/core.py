@@ -339,16 +339,13 @@ def _resolve_session(ctx: Context, provider: Provider, pick: bool,
     return s, ctx.cwd
 
 
-def _target(ctx: Context, account: Optional[str], last: Optional[str]) -> Account:
+def _target(ctx: Context, account: Optional[str], last: str) -> Account:
     if account is not None:
         return ctx.config.get(account)
     names = ", ".join(sorted(ctx.config.accounts))
     if len(ctx.config.accounts) != 2:  # FR-3.9: "the other account" needs exactly two
         raise AisError(EXIT_USAGE, "%d accounts are configured; run `ais switch <account>` with one of: %s"
                        % (len(ctx.config.accounts), names))
-    if last is None:
-        raise AisError(EXIT_USAGE, "the last-used account of this session is unknown; "
-                       "run `ais switch <account>` with one of: %s" % names)
     return next(a for n, a in ctx.config.accounts.items() if n != last)
 
 
@@ -380,7 +377,10 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
     s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session,
                             dry_run)
     last = _last_used(ctx, s)
-    acc = _target(ctx, account, last)
+    if last is None and account is None:  # FR-3.1: no record means a plain `claude`, on the default account
+        print("ais: no record of this session; assuming it last ran on %s"
+              % ctx.config.accounts[ctx.config.default].label, file=sys.stderr)
+    acc = _target(ctx, account, last or ctx.config.default)
     provider = ctx.provider_for(acc)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)
