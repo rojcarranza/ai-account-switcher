@@ -9,17 +9,21 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 _ESCAPE = re.compile(rb"\\x([0-9a-fA-F]{2})")
 
 
-def _run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = None) -> Tuple[Optional[int], str, Optional[str]]:
-    """(returncode, stdout, warning). A timeout kills the whole process group, children included."""
+def run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = None,
+        stderr: bool = False) -> Tuple[Optional[int], str, Optional[str], str]:
+    """(returncode, stdout, warning, stderr). A timeout kills the whole process group, children included.
+
+    stderr is captured only when asked for; otherwise it is dropped and the last item is "".
+    """
     tool = cmd[0]
     try:
         proc = subprocess.Popen(list(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
+                                stderr=subprocess.PIPE if stderr else subprocess.DEVNULL, encoding="utf-8", errors="replace",
                                 start_new_session=True, env=env)
     except OSError as e:
-        return None, "", "cannot run %s: %s" % (tool, e)
+        return None, "", "cannot run %s: %s" % (tool, e), ""
     try:
-        out, _ = proc.communicate(timeout=timeout)
+        out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -31,8 +35,8 @@ def _run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = 
             for f in (proc.stdout, proc.stdin, proc.stderr):
                 if f:
                     f.close()
-        return None, "", "%s timed out after %gs" % (tool, timeout)
-    return proc.returncode, out, None
+        return None, "", "%s timed out after %gs" % (tool, timeout), ""
+    return proc.returncode, out, None, err or ""
 
 
 def _unescape(path: str) -> str:
@@ -43,7 +47,7 @@ def _unescape(path: str) -> str:
 
 def process_cwds(name: str, timeout: float) -> Tuple[Dict[int, Tuple[str, Path]], List[str]]:
     """({pid: (args, cwd)}, warnings) for processes whose name is exactly `name`; ({}, [...]) on failure."""
-    rc, out, warn = _run(["pgrep", "-x", name], timeout)
+    rc, out, warn, _ = run(["pgrep", "-x", name], timeout)
     if warn:
         return {}, [warn]
     if rc == 1:  # pgrep: no match
@@ -52,7 +56,7 @@ def process_cwds(name: str, timeout: float) -> Tuple[Dict[int, Tuple[str, Path]]
     if rc != 0 or not pids:
         return {}, ["pgrep -x %s failed (exit %s)" % (name, rc)]
     plist = ",".join(pids)
-    rc, ps_out, warn = _run(["ps", "-o", "pid=,args=", "-p", plist], timeout)
+    rc, ps_out, warn, _ = run(["ps", "-o", "pid=,args=", "-p", plist], timeout)
     if warn or rc not in (0, 1):  # ps exits 1 when some pid vanished
         return {}, [warn or "ps failed (exit %s)" % rc]
     args = {}
@@ -62,7 +66,7 @@ def process_cwds(name: str, timeout: float) -> Tuple[Dict[int, Tuple[str, Path]]
             args[int(pid)] = rest.strip()
     if not args:
         return {}, ["ps listed no process for pids %s" % plist]
-    rc, ls_out, warn = _run(["lsof", "-a", "-d", "cwd", "-p", plist, "-Fn"], timeout,
+    rc, ls_out, warn, _ = run(["lsof", "-a", "-d", "cwd", "-p", plist, "-Fn"], timeout,
                             dict(os.environ, LC_ALL="en_US.UTF-8"))
     if warn or rc not in (0, 1):  # lsof exits 1 when some pid vanished
         return {}, [warn or "lsof failed (exit %s)" % rc]

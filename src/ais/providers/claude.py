@@ -5,12 +5,12 @@ import json
 import os
 import plistlib
 import re
-import subprocess
 import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from ais import procs
 from ais.accounts import Account
 from ais.providers.base import Session
 
@@ -19,6 +19,9 @@ SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
 TESTED_VERSIONS = ("2.1.301", "2.1.301")  # min, max inclusive (spike (f))
 VERSION_TIMEOUT = 10
+AUTH_TIMEOUT = 10
+KEYCHAIN_TIMEOUT = 5
+KEYCHAIN_NOT_FOUND = 44  # errSecItemNotFound
 MANAGED_PROFILE = "com.anthropic.claudecode"
 LIMIT_MARKER = {"isApiErrorMessage": True, "error": "rate_limit"}  # spike (j); used by task 14
 
@@ -250,6 +253,32 @@ class ClaudeProvider:
             env[SLOT_ENV] = account.cred_dir  # exactly as stored: the string is the Keychain hash input
         return env, warnings
 
+    def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
+        """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""
+        argv = ["security", "find-generic-password", "-s", keychain_service(account.cred_dir)]
+        rc, _, warn, err = procs.run(argv, KEYCHAIN_TIMEOUT, stderr=True)
+        if warn:
+            return "unknown", "keychain", warn.splitlines()[0]
+        if rc == 0:
+            return "yes", "keychain", ""
+        if rc == KEYCHAIN_NOT_FOUND:
+            return "no", "keychain", ""
+        lines = err.splitlines()
+        return "unknown", "keychain", "security exited %d%s" % (rc, ": " + lines[0] if lines else "")
+
+    def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
+        env, _ = self.env_for(account, base_env)
+        rc, out, warn, _ = procs.run(["claude", "auth", "status", "--json"], AUTH_TIMEOUT, env)
+        if not warn and rc == 0:
+            try:
+                data = json.loads(out)
+            except ValueError:
+                data = None
+            # only loggedIn: email/org are not per slot (spike (h))
+            if isinstance(data, dict) and isinstance(data.get("loggedIn"), bool):
+                return ("yes" if data["loggedIn"] else "no"), "auth status", ""
+        return self.keychain_credential(account)
+
     def billing_risks(self, env: Mapping[str, str], folder: Path, args: Sequence[str],
                       settings_roots: Mapping[str, Path]) -> List[str]:
         risks = ["%s in the environment" % n for n in BILLING_ENV if _set(env, n)]
@@ -280,13 +309,9 @@ class ClaudeProvider:
         return ["claude", "auth", "login"]
 
     def self_check(self) -> List[str]:
-        try:
-            out = subprocess.run(["claude", "--version"], stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 universal_newlines=True, errors="replace",
-                                 timeout=VERSION_TIMEOUT).stdout
-        except (OSError, subprocess.TimeoutExpired) as e:
-            return ["cannot check the Claude Code version: %s" % e]
+        _, out, warn, _ = procs.run(["claude", "--version"], VERSION_TIMEOUT)
+        if warn:
+            return ["cannot check the Claude Code version: %s" % warn]
         m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", out)
         if not m:
             return ["cannot parse the Claude Code version from %r" % out.strip()[:80]]

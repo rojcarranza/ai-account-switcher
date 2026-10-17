@@ -1,0 +1,15 @@
+#!/bin/sh
+# Fake keychain tool: refuses the secret-reading flags (also inside bundled short
+# options such as -ag); else prints $FAKE_SECURITY_ERR to stderr and exits $FAKE_SECURITY_RC.
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "security $*" >> "$FAKE_CALL_LOG"
+for a in "$@"; do
+    case "$a" in
+        --*) ;;
+        -*[wg]*)
+            [ -n "${FAKE_CALL_LOG:-}" ] && echo "FORBIDDEN" >> "$FAKE_CALL_LOG"
+            echo "fake security: forbidden flag $a" >&2
+            exit 99 ;;
+    esac
+done
+[ -n "${FAKE_SECURITY_ERR:-}" ] && printf '%s\n' "$FAKE_SECURITY_ERR" >&2
+exit "${FAKE_SECURITY_RC:-0}"
