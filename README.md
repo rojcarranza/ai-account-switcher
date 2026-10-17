@@ -50,7 +50,9 @@ Create these? [y/N] y
    ais switch
    ```
 
-That resumes the newest session in this folder on the other account. The first switch between two accounts asks once:
+That resumes the newest session in this folder on the other account. ais knows "the other account" only for sessions it started or switched (`ais run`, `ais switch`). For a session started with plain `claude`, name the account: `ais switch work`.
+
+The first switch from one account to the other asks once:
 
 ```
 ais: the full transcript of session 11587d78-f810-4c64-870f-d7c9c6058ce2 (used under Personal) will be sent under Work.
@@ -99,6 +101,8 @@ Every command that changes something takes `--dry-run`.
 ## Good to know
 
 - `ais` cannot tell which email a slot is signed in to. Sign in to the right account in each slot.
+- Sign in to an extra account only with `ais login <account>`. A `/login` inside a plain `claude` session replaces the default account's login.
+- Do not set `CLAUDE_CONFIG_DIR`: it splits the shared `~/.claude`, and `ais switch` stops finding sessions.
 - If Claude is still running the session, `ais switch` stops with exit 75: type `/exit` there first.
 - `ais` refuses to start `claude` when the environment or Claude settings would bill an API key instead of your subscription (for example `ANTHROPIC_API_KEY` or `ANTHROPIC_BASE_URL` set). `--allow-api-key` overrides.
 - Shared memory, `CLAUDE.md` and settings in `~/.claude` go with every session on either account.
@@ -113,4 +117,4 @@ make lint test build
 
 - Single test: `python3 -m unittest tests.test_cli.CliTest.test_version`
 - Run from source: `PYTHONPATH=src python3 -m ais status`
-- Python 3.9 syntax only. Rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/).
+- Python 3.9 syntax only. Rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/). Build status: [docs/progress.md](docs/progress.md), [docs/spike-results.md](docs/spike-results.md).
