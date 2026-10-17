@@ -325,6 +325,11 @@ class ClaudeProvider:
             env[SLOT_ENV] = account.cred_dir  # exactly as stored: the string is the Keychain hash input
         return env, warnings
 
+    def credential_removal_hint(self, account: Account) -> Optional[str]:
+        if account.is_default:
+            return None
+        return "security delete-generic-password -s '%s'" % keychain_service(account.cred_dir)
+
     def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""
         argv = ["security", "find-generic-password", "-s", keychain_service(account.cred_dir)]
