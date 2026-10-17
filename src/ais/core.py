@@ -243,6 +243,7 @@ def _clean(text: str) -> str:
 
 
 def _ask(prompt: str) -> str:
+    sys.stdout.flush()  # a piped listing must come out before the prompt
     print(prompt, end="", file=sys.stderr, flush=True)
     return sys.stdin.readline().strip()
 
@@ -642,18 +643,31 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         recorded = store.read_json("state.json").get("menu_plugin")
         if recorded is not None and not isinstance(recorded, str):
             raise AisError(EXIT_CONFIG, "menu_plugin is not a path")
-        plugin = Path(recorded) if recorded and os.path.lexists(recorded) else None
+        if recorded and os.path.lexists(recorded):
+            rp = Path(recorded)
+            if rp.is_absolute() and (rp.is_symlink() or rp.is_file()):
+                plugin = rp
+            else:  # untrusted data: never delete a folder or a relative path
+                print("ais: warning: state.json menu_plugin %r is not an absolute file path; "
+                      "remove the plugin by hand" % recorded, file=sys.stderr)
     except AisError:
         print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
               "must be removed by hand", file=sys.stderr)
-    entries = sorted(store.dir.iterdir()) if store.dir.is_dir() and not store.dir.is_symlink() else []
+    entries = []  # type: List[Path]
+    if store.dir.is_symlink():
+        entries = [store.dir]  # unlinked, never followed
+    elif store.dir.is_dir():
+        try:
+            entries = sorted(store.dir.iterdir())
+        except OSError as e:
+            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
     snaps = store.dir / "snapshots"
     snaps_here = snaps in entries
     steps = ["~/.local/bin/ais and ~/.local/bin/ais.prev: delete both files"]
     extras = [a for a in ctx.config.accounts.values() if not a.is_default]
     for a in extras:
         steps.append("%s: your %s sign-in folder (kept; delete it if you no longer need it)" % (a.cred_dir, a.label))
-        hint = provider.credential_removal_hint(a)
+        hint = ctx.provider_for(a).credential_removal_hint(a)
         if hint:
             steps.append("Keychain item of %s: %s" % (a.label, hint))
     if not extras:
@@ -666,7 +680,8 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         for s in steps:
             print("  " + s)
 
-    if not entries and plugin is None:
+    here = os.path.lexists(str(store.dir))
+    if not here and plugin is None:
         print("Nothing to remove.")
         manual()
         return 0
@@ -675,6 +690,8 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         print("  %s (SwiftBar plugin recorded in state.json)" % plugin)
     for e in entries:
         print("  %s%s" % (e, "/ (asks first)" if e == snaps else ""))
+    if not entries:
+        print("  %s/ (empty)" % store.dir)
     if dry_run:
         manual()
         return 0
@@ -683,14 +700,23 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         return EXIT_DECLINED
     keep = snaps_here and not yes("Also delete the saved snapshots in %s? [y/N] " % snaps)
     if plugin is not None:
-        _remove(plugin)
+        try:
+            os.unlink(str(plugin))
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (plugin, e))
     for e in entries:
         if not (keep and e == snaps):
             _remove(e)
     if keep:
         print("Kept %s (%d bytes)" % (snaps, _size(snaps)))
     else:
-        with contextlib.suppress(OSError):
-            store.dir.rmdir()  # only when empty
+        try:
+            store.dir.rmdir()  # only when empty; a symlink is already gone
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (store.dir, e))
     manual()
     return 0

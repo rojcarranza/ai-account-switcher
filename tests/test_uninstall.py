@@ -80,7 +80,12 @@ class UninstallTest(TempHomeCase):
         self.assertTrue((self.home / ".claude-accounts" / "work").is_dir())
         self.assertIn(self.work, out)
         self.assertIn(keychain_service(self.work), out)  # the hint; `security` is never run
-        self.assertNotIn("calls", "".join(os.listdir(str(self.home))))
+        log = self.home / "security.log"
+        os.environ["FAKE_CALL_LOG"] = str(log)
+        self.addCleanup(os.environ.pop, "FAKE_CALL_LOG", None)
+        self.ais_dir.mkdir()
+        self.assertEqual(self.ais("y\n")[0], 0)
+        self.assertFalse(log.exists() and log.read_text())  # `security` never ran
 
     def test_uninstall_removes_recorded_plugin_only(self):
         self.record_plugin()
@@ -137,7 +142,49 @@ class UninstallTest(TempHomeCase):
         self.assertIn("%s: " % (self.ais_dir / "ais.log"), err)
         self.assertIn("denied", err)
         self.assertNotIn("~/.local/bin/ais", out)  # no manual steps after a failure
-        self.assertTrue((self.ais_dir / "ais.log").exists())
+        for f in ("ais.log", "config.json", "state.json"):
+            self.assertTrue((self.ais_dir / f).exists(), f)
+
+    def test_uninstall_plugin_folder_or_relative_path_ignored(self):
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(str(self.home))  # "relative/ais.py" resolves here
+        sub = self.home / "Plugins" / "sub"
+        sub.mkdir(parents=True)
+        (sub / "other.py").write_text("o")
+        for rec in (str(self.home / "Plugins"), "relative/ais.py"):
+            (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": rec}))
+            (self.home / "relative").mkdir(exist_ok=True)
+            (self.home / "relative" / "ais.py").write_text("r")
+            code, _, err = self.ais("y\n")
+            self.assertEqual(code, 0)
+            self.assertIn("by hand", err)
+            self.assertTrue((sub / "other.py").exists())
+            self.assertTrue((self.home / "relative" / "ais.py").exists())
+            self.ais_dir.mkdir(exist_ok=True)
+
+    def test_uninstall_unreadable_config_dir_exits_73(self):
+        self.ais_dir.chmod(0)
+        self.addCleanup(self.ais_dir.chmod, 0o700)
+        for args in ((), ("--dry-run",)):
+            code, _, err = self.ais("y\n", *args)
+            self.assertEqual(code, 73)
+            self.assertIn(str(self.ais_dir), err)
+            self.assertNotIn("Traceback", err)
+
+    def test_uninstall_removes_empty_or_symlinked_config_dir(self):
+        for p in list(self.ais_dir.iterdir()):
+            p.unlink()
+        code, out, _ = self.ais("y\n")
+        self.assertEqual(code, 0)
+        self.assertFalse(self.ais_dir.exists())
+        real = self.home / "real"
+        real.mkdir()
+        (real / "f").write_text("f")
+        self.ais_dir.parent.mkdir(exist_ok=True)
+        self.ais_dir.symlink_to(real)
+        self.assertEqual(self.ais("y\n")[0], 0)
+        self.assertFalse(self.ais_dir.is_symlink())
+        self.assertEqual((real / "f").read_text(), "f")
 
     def test_uninstall_lists_local_bin(self):
         code, out, _ = self.ais("n\n")
