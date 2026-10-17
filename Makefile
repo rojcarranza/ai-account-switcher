@@ -1,6 +1,7 @@
 .PHONY: test lint build install
 
 DIST = dist
+SRC := $(shell find src -name '*.py')
 
 test:
 	python3 -m unittest discover -s tests -t .
@@ -8,7 +9,10 @@ test:
 lint:
 	python3 -m compileall -q src tests
 
-build:
+build: $(DIST)/ais
+
+# file target: an unchanged reinstall must not rebuild (zipapp embeds build time)
+$(DIST)/ais: $(SRC)
 	mkdir -p "$(DIST)"
 	python3 -m zipapp src -m "ais.__main__:run" -p "/usr/bin/env python3" -o "$(DIST)/ais"
 
