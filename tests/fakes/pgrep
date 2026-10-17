@@ -1,0 +1,5 @@
+#!/bin/sh
+# Fake pgrep: prints $FAKE_PGREP_OUT; exit 1 when empty (no match).
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "pgrep $*" >> "$FAKE_CALL_LOG"
+[ -n "${FAKE_PGREP_OUT:-}" ] || exit 1
+printf '%s\n' "$FAKE_PGREP_OUT"
