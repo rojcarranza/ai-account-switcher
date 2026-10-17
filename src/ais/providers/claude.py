@@ -2,6 +2,7 @@
 import getpass
 import hashlib
 import json
+import os
 import plistlib
 import re
 import subprocess
@@ -78,7 +79,14 @@ def _settings_risks(path: Path, data: Any) -> List[str]:
     return risks
 
 
-def _read(path: Path, loader) -> List[str]:
+def _global_risks(path: Path, data: Any) -> List[str]:
+    # ~/.claude.json is not a settings file: only its /login managed key matters; never print the value.
+    if isinstance(data, dict) and data.get("primaryApiKey") is not None:
+        return ["primaryApiKey in %s" % path]
+    return []
+
+
+def _read(path: Path, loader, check=_settings_risks) -> List[str]:
     try:
         with open(str(path), "rb") as f:
             data = loader(f)
@@ -86,7 +94,14 @@ def _read(path: Path, loader) -> List[str]:
         return []
     except Exception as e:  # unreadable or invalid: fail safe, report it
         return ["cannot read %s: %s" % (path, e)]
-    return _settings_risks(path, data)
+    return check(path, data)
+
+
+def _repo_root(folder: Path) -> Optional[Path]:
+    for d in [folder] + list(folder.parents):
+        if os.path.lexists(str(d / ".git")):
+            return d
+    return None
 
 
 class ClaudeProvider:
@@ -109,6 +124,12 @@ class ClaudeProvider:
         for root, rel in SETTINGS_FILES:
             base = folder if root == "folder" else settings_roots[root]
             risks += _read(Path(base) / rel, json.load)
+        root = _repo_root(Path(folder))
+        if root is not None and root != Path(folder):  # claude also reads the repo root's local settings
+            risks += _read(root / ".claude" / "settings.local.json", json.load)
+        for drop_in in sorted((Path(settings_roots["managed"]) / "managed-settings.d").glob("*.json")):
+            risks += _read(drop_in, json.load)
+        risks += _read(Path(settings_roots["home"]) / ".claude.json", json.load, _global_risks)
         prefs = Path(settings_roots["managed_prefs"])
         for plist in (prefs / (MANAGED_PROFILE + ".plist"),
                       prefs / getpass.getuser() / (MANAGED_PROFILE + ".plist")):

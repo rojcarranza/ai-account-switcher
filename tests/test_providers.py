@@ -128,6 +128,53 @@ class ProvidersTest(TempHomeCase):
                 self.assertTrue(r[0].startswith("cannot read %s: " % plist), r[0])
                 plist.unlink()
 
+    def test_billing_risks_global_config_primary_api_key(self):
+        path = self.home / ".claude.json"
+        for data, expected in (({"primaryApiKey": "sk-secret", "x": 1}, ["primaryApiKey in %s" % path]),
+                               ({"primaryApiKey": None}, []),
+                               ({"apiKeyHelper": "x", "env": {"ANTHROPIC_API_KEY": "1"}}, []),
+                               ([], [])):
+            with self.subTest(data=data):
+                self.write_json(path, data)
+                r = self.risks()
+                self.assertEqual(r, expected)
+                self.assertNotIn("sk-secret", " ".join(r))
+        self.write_json(path, "{not json")
+        r = self.risks()
+        self.assertEqual(len(r), 1)
+        self.assertTrue(r[0].startswith("cannot read %s: " % path), r[0])
+        path.unlink()
+        self.assertEqual(self.risks(), [])
+
+    def test_billing_risks_git_root_local_settings(self):
+        repo = self.home / "repo"
+        self.folder = repo / "sub"
+        self.folder.mkdir(parents=True)
+        local = repo / ".claude" / "settings.local.json"
+        self.write_json(local, {"apiKeyHelper": "x"})
+        self.assertEqual(self.risks(), [])  # no .git: not a git root
+        for kind in ("dir", "file"):
+            with self.subTest(kind=kind):
+                git = repo / ".git"
+                git.mkdir() if kind == "dir" else git.write_text("gitdir: /x")
+                self.assertEqual(self.risks(), ["apiKeyHelper in %s" % local])
+                git.rmdir() if kind == "dir" else git.unlink()
+        # folder is the git root: its local settings are reported once, not twice
+        (self.folder / ".git").mkdir()
+        mine = self.folder / ".claude" / "settings.local.json"
+        self.write_json(mine, {"apiKeyHelper": "x"})
+        self.assertEqual(self.risks(), ["apiKeyHelper in %s" % mine])
+
+    def test_billing_risks_managed_drop_ins(self):
+        d = self.roots["managed"] / "managed-settings.d"
+        self.write_json(d / "b.json", {"env": {"ANTHROPIC_API_KEY": "1"}})
+        self.write_json(d / "a.json", {"forceLoginOrgUUID": "x"})
+        self.write_json(d / "c.txt", {"apiKeyHelper": "x"})
+        self.assertEqual(self.risks(), ["forceLoginOrgUUID in %s" % (d / "a.json"),
+                                        "ANTHROPIC_API_KEY in %s env" % (d / "b.json")])
+        self.write_json(d / "a.json", "{bad")
+        self.assertTrue(self.risks()[0].startswith("cannot read %s: " % (d / "a.json")))
+
     def test_billing_risks_settings_flag_both_forms(self):
         self.assertEqual(self.risks(args=["-p", "hi"]), [])
         for args, flag in ((["--settings", "x.json"], "--settings"),
