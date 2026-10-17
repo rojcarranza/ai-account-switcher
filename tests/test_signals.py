@@ -136,7 +136,7 @@ class InProcessTest(TempHomeCase):
                 return True
         out, err = Tty(), io.StringIO()
         with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
-            self.assertEqual(self.run_ok(label="wo\007rk\033]0;x\x7f\n"), 0)
+            self.assertEqual(self.run_ok(label="wo\007rk\033]0;x\x7f\n\u009d\u009b"), 0)
         self.assertEqual(err.getvalue(), "ais: work]0;x\n")
         self.assertEqual(out.getvalue(), "\033]0;claude (work]0;x)\007")
 

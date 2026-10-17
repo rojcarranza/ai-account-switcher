@@ -2,6 +2,7 @@
 import signal
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Callable, Dict, List
 
@@ -13,7 +14,7 @@ def run_claude(cmd: List[str], env: Dict[str, str], cwd: Path, label: str, on_st
 
     on_started is called exactly once, after the spawn succeeded or failed.
     """
-    label = "".join(c for c in label if c >= " " and c != "\x7f")
+    label = "".join(c for c in label if not unicodedata.category(c).startswith("C"))  # C0, DEL, C1, format
     print("ais: %s" % label, file=sys.stderr, flush=True)
     try:
         if sys.stdout.isatty():
