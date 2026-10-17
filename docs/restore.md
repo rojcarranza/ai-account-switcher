@@ -1,6 +1,8 @@
 # Restore a session from a snapshot
 
-Before every `ais switch`, ais copies the session's files to `~/.config/ais/snapshots/<UTC stamp>-<session id>/`, for example `20261017T093000Z-<session id>`. It keeps at most 20 snapshots, 500 MB and 30 days.
+Before every `ais switch`, ais tries to copy the session's files to `~/.config/ais/snapshots/<UTC stamp>-<session id>/`, for example `20261017T093000Z-<session id>`. It keeps at most 20 snapshots, 500 MB and 30 days.
+
+If the snapshot cannot be made, the switch goes on and ais prints `ais: warning: snapshot failed (...); continuing without one` or `ais: warning: not enough free space for a snapshot; continuing without one`. Then there is nothing to restore for that switch.
 
 A snapshot holds:
 
@@ -16,7 +18,7 @@ Restoring replaces the live transcript with the saved one. Anything said after t
    ```bash
    ls -d ~/.config/ais/snapshots/*
    ```
-   Pick the newest one whose name ends in the session ID you want.
+   Pick the newest one whose name contains the session ID you want.
 3. Find where the live transcript sits (the folder name under `projects/` is Claude Code's own encoding of the project folder):
    ```bash
    ls ~/.claude/projects/*/<session id>.jsonl

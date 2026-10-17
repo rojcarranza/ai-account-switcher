@@ -18,7 +18,7 @@ Other forms:
 - `ais switch --pick` lists the 5 newest sessions of this folder and asks for a number.
 - `ais switch --dry-run` prints the session, folder, account and command and starts nothing.
 
-The first time a transcript moves from one account to the other, ais asks `Continue? [y/N]`. It is asked once per account pair.
+The first time a transcript moves from one account to the other, ais asks `Continue? [y/N]`. It is asked once for each direction (personal to work, and work to personal).
 
 Before each resume, ais copies the session's files to `~/.config/ais/snapshots/`. To undo a damaged session, see [restore.md](restore.md).
 
