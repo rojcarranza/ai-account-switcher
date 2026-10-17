@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from tests.test_switch import SwitchCase
@@ -24,14 +26,19 @@ class DryRunTest(SwitchCase):
         (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(plugin)}))
         (self.ais_dir / "snapshots").mkdir()
         (self.home / "Applications" / "Claude.app").mkdir(parents=True)  # found on Linux CI too
-        self.env(FAKE_CALL_LOG=os.devnull)  # the fake ps would log into the hashed HOME
+        log_dir = tempfile.mkdtemp()  # outside the hashed HOME
+        self.addCleanup(shutil.rmtree, log_dir)
+        log = Path(log_dir) / "calls.log"
+        self.env(FAKE_CALL_LOG=str(log))
         for cmd in (["setup"], ["switch", "work"], ["run", "work"], ["login", "work"], ["desktop", "work"],
                     ["uninstall"]):
             with self.subTest(cmd=cmd[0]):
                 before = tree_hash(self.home)
+                log.write_text("")
                 code, _, err = self.ais(*(cmd + ["--dry-run"]), stdin="\n" * 6 if cmd == ["setup"] else "")
                 self.assertEqual(code, 0, err)
                 if cmd != ["setup"]:
                     self.assertNotIn("? [", err)  # dry-run asks nothing: no [y/N] or [1-n] prompt
                 self.assertEqual(tree_hash(self.home), before, sorted(str(q) for q in self.home.rglob('*')))
+                self.assertEqual(log.read_text(), "ps -x -ww -o pid=,args=\n" if cmd[0] == "desktop" else "")
                 self.assertEqual(plugin.read_text(), "plugin")

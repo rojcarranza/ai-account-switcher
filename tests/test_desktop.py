@@ -1,6 +1,5 @@
 """FR-6.1 to FR-6.4: `ais desktop` opens a Claude Desktop instance per account."""
 import contextlib
-import hashlib
 import io
 import os
 import shlex
@@ -11,19 +10,11 @@ from ais import cli, core
 from ais.errors import AisError
 from ais.providers.claude import _desktop_pid
 from tests.helpers import TESTS
+from tests.test_dry_run import tree_hash
 from tests.test_switch import SwitchCase
 
 FIXTURE = TESTS / "fixtures" / "ps_desktop.txt"
 SUPPORT = "/Users/u/Library/Application Support/"
-
-
-def tree_hash(root):
-    h = hashlib.sha256()
-    for p in sorted(Path(root).rglob("*")):
-        h.update(("%s %o\n" % (p.relative_to(root), p.lstat().st_mode)).encode())
-        if p.is_file() and not p.is_symlink():
-            h.update(p.read_bytes())
-    return h.hexdigest()
 
 
 class DesktopTest(SwitchCase):
@@ -85,6 +76,9 @@ class DesktopTest(SwitchCase):
         self.assertIsNone(_desktop_pid(text, Path(SUPPORT + "Claude-ais-other")))
         self.assertIsNone(_desktop_pid(text, Path(SUPPORT + "Claude-work-x")))
         self.assertIsNone(_desktop_pid("", None))
+        tools = "\n".join(l for l in text.splitlines() if l.split()[0] in ("401", "402"))
+        self.assertIsNone(_desktop_pid(tools, None))  # a tool that merely names the executable
+        self.assertEqual(_desktop_pid("7 /Users/u/My Apps/Claude.app/Contents/MacOS/Claude", None), 7)
 
     def test_default_not_matched_by_extra_instances(self):
         text = "\n".join(l for l in FIXTURE.read_text().splitlines() if not l.strip().startswith("101"))
@@ -96,6 +90,14 @@ class DesktopTest(SwitchCase):
         self.assertEqual(code, 69)
         self.assertIn("Claude Desktop not found in %s or %s" % (a, b), err)
         self.assertEqual(self.open_calls(), [])
+
+    def test_dangling_symlink_root_falls_through(self):
+        bad = self.home / "bad"
+        bad.mkdir()
+        os.symlink(str(self.home / "gone"), str(bad / "Claude.app"))
+        code, _, err = self.desktop("personal", roots=[bad, self.apps])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_calls(), ["open -n -a %s" % (self.apps / "Claude.app")])
 
     def test_open_failure_exits_69_with_stderr(self):
         self.env(FAKE_OPEN_RC="1", FAKE_OPEN_ERR="open: boom")
@@ -152,7 +154,7 @@ class DesktopTest(SwitchCase):
 
         def hashes():
             return [tree_hash(self.home / w) if (self.home / w).is_dir()
-                    else (self.home / w).read_bytes() for w in watched]
+                    else ((self.home / w).read_bytes(), os.lstat(str(self.home / w)).st_mtime_ns) for w in watched]
         before = os.listdir(str(self.ais_dir)), hashes()
         for acct in ("personal", "work"):
             self.assertEqual(self.desktop(acct)[0], 0)

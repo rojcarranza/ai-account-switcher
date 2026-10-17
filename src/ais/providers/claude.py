@@ -59,7 +59,8 @@ DESKTOP_APP = "Claude.app"
 DESKTOP_SUPPORT = ("Library", "Application Support")
 DESKTOP_PREFIX = "Claude-ais-"
 DESKTOP_PS_TIMEOUT = 5
-_DESKTOP_MAIN = re.compile(r"/Contents/MacOS/Claude(?: -|$)")  # never "Claude Helper (…)"
+# the executable is the first word (a path may hold spaces, never " /"); never "Claude Helper (…)"
+_DESKTOP_MAIN = re.compile(r"/(?:[^ ]| (?!/))*\.app/Contents/MacOS/Claude(?= -|$)")
 _USER_DATA_DIR = "--user-data-dir="
 
 
@@ -224,10 +225,10 @@ def _desktop_pid(ps_output: str, data_dir: Optional[Path]) -> Optional[int]:
     """PID of the main Desktop process whose --user-data-dir is data_dir (None = no such flag)."""
     for raw in ps_output.splitlines():
         pid, _, args = raw.strip().partition(" ")
-        m = _DESKTOP_MAIN.search(args)
+        m = _DESKTOP_MAIN.match(args)
         if not pid.isdigit() or m is None:
             continue
-        rest = args[m.start():]
+        rest = args[m.end():]
         _, flag, tail = rest.partition(_USER_DATA_DIR)
         folder = tail.split(" --", 1)[0] if flag else None
         if folder == (None if data_dir is None else str(data_dir)):
@@ -363,8 +364,8 @@ class ClaudeProvider:
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:
-            try:  # os.lstat: an unreadable root just means "not there"
-                os.lstat(str(root / DESKTOP_APP))
+            try:  # an unreadable root just means "not there"
+                os.stat(str(root / DESKTOP_APP))  # follows links: a dangling one is "not there"
             except OSError:
                 continue
             cmd = ["open", "-n", "-a", str(root / DESKTOP_APP)]  # -n: else macOS only fronts a running instance
