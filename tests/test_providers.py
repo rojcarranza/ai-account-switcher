@@ -1,6 +1,7 @@
 import json
 import os
 import plistlib
+from pathlib import Path
 from unittest import mock
 
 from ais import providers
@@ -164,6 +165,43 @@ class ProvidersTest(TempHomeCase):
         mine = self.folder / ".claude" / "settings.local.json"
         self.write_json(mine, {"apiKeyHelper": "x"})
         self.assertEqual(self.risks(), ["apiKeyHelper in %s" % mine])
+
+    def test_billing_risks_worktree_main_checkout_local_settings(self):
+        main = Path(os.path.realpath(str(self.home))) / "main"
+        wt = main.parent / "wt"
+        (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+        wt.mkdir()
+        main_local = main / ".claude" / "settings.local.json"
+        self.write_json(main_local, {"apiKeyHelper": "x"})
+        for gitdir in (str(main / ".git" / "worktrees" / "wt"), "../main/.git/worktrees/wt"):
+            for folder in (wt, wt / "sub"):
+                with self.subTest(gitdir=gitdir, folder=str(folder)):
+                    folder.mkdir(exist_ok=True)
+                    (wt / ".git").write_text("gitdir: %s\n" % gitdir)
+                    self.folder = folder
+                    self.assertEqual(self.risks(), ["apiKeyHelper in %s" % main_local])
+        for odd in ("", "garbage", "gitdir: /nowhere/at/all", b"\xff\xfe"):
+            with self.subTest(odd=odd):
+                if isinstance(odd, bytes):
+                    (wt / ".git").write_bytes(odd)
+                else:
+                    (wt / ".git").write_text(odd)
+                self.folder = wt
+                self.assertEqual(self.risks(), [])
+
+    def test_billing_risks_symlinked_folder_uses_realpath(self):
+        repo = Path(os.path.realpath(str(self.home))) / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / "sub").mkdir()
+        local = repo / ".claude" / "settings.local.json"
+        self.write_json(local, {"apiKeyHelper": "x"})
+        link = self.home / "link"
+        link.symlink_to(repo / "sub")
+        self.folder = link
+        self.assertEqual(self.risks(), ["apiKeyHelper in %s" % local])
+        link.unlink()
+        link.symlink_to(repo)  # folder is the repo root: reported once, by the folder scope
+        self.assertEqual(self.risks(), ["apiKeyHelper in %s" % (link / ".claude" / "settings.local.json")])
 
     def test_billing_risks_managed_drop_ins(self):
         d = self.roots["managed"] / "managed-settings.d"

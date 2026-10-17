@@ -97,11 +97,45 @@ def _read(path: Path, loader, check=_settings_risks) -> List[str]:
     return check(path, data)
 
 
-def _repo_root(folder: Path) -> Optional[Path]:
-    for d in [folder] + list(folder.parents):
-        if os.path.lexists(str(d / ".git")):
-            return d
+def _main_checkout(dot_git: Path) -> Optional[Path]:
+    """For a worktree's `.git` file ("gitdir: <X>/.git/worktrees/<name>"), return <X>."""
+    try:
+        line = dot_git.read_text(errors="replace").splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    gitdir = Path(os.path.normpath(str(dot_git.parent / line[len("gitdir:"):].strip())))
+    if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
+        return gitdir.parent.parent.parent
     return None
+
+
+def _repo_roots(folder: Path) -> List[Path]:
+    """Repo root and, for a worktree, the main checkout; claude reads their local settings too.
+
+    Walks both the folder as given and its realpath (claude compares realpaths); roots are
+    de-duplicated by realpath, keeping the first (lexical) spelling, and the folder itself is skipped.
+    """
+    real = os.path.realpath(str(folder))
+    seen = {real}
+    roots = []  # type: List[Path]
+    for start in (folder, Path(real)):
+        for d in [start] + list(start.parents):
+            dot_git = d / ".git"
+            if not os.path.lexists(str(dot_git)):
+                continue
+            found = [d]
+            if dot_git.is_file():
+                main = _main_checkout(dot_git)
+                if main is not None:
+                    found.append(main)
+            for r in found:
+                if os.path.realpath(str(r)) not in seen:
+                    seen.add(os.path.realpath(str(r)))
+                    roots.append(r)
+            break
+    return roots
 
 
 class ClaudeProvider:
@@ -124,8 +158,7 @@ class ClaudeProvider:
         for root, rel in SETTINGS_FILES:
             base = folder if root == "folder" else settings_roots[root]
             risks += _read(Path(base) / rel, json.load)
-        root = _repo_root(Path(folder))
-        if root is not None and root != Path(folder):  # claude also reads the repo root's local settings
+        for root in _repo_roots(Path(folder)):
             risks += _read(root / ".claude" / "settings.local.json", json.load)
         for drop_in in sorted((Path(settings_roots["managed"]) / "managed-settings.d").glob("*.json")):
             risks += _read(drop_in, json.load)
