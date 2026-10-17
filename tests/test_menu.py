@@ -96,6 +96,28 @@ class RenderTest(SwitchCase):
             self.assertNotIn(hidden, out)
         self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS, out)
 
+    def test_label_leading_dashes_stripped(self):
+        s = status()
+        s["accounts"][0]["label"] = "--x"
+        s["accounts"][1]["label"] = "---"
+        out = menu.render(s, False, AIS).split("\n")
+        self.assertEqual(out[0], "x")
+        self.assertEqual(out[2:4], ["x: credential yes", "work: credential unknown"])
+        self.assertTrue(any(ln.startswith("--Resume in work | bash=") for ln in out))
+
+    def test_run_refuses_to_spawn_after_kill_live(self):
+        from ais import procs
+        self.addCleanup(setattr, procs, "_STOPPED", False)
+        procs.kill_live()
+        rc, _, warn, _ = procs.run(["true"], 5)
+        self.assertEqual((rc, warn), (None, "cannot run true: stopped"))
+
+    def test_privacy_mode_counts_warnings_without_text(self):
+        s = status(self_check={"ok": False, "messages": ["secret /Users/x", "b"]})
+        out = menu.render(s, True, AIS)
+        self.assertIn("\n2 warnings\n", out)
+        self.assertNotIn("secret", out)
+
     def test_desktop_item_per_account_only_account_in_action(self):
         s = status()
         s["accounts"][1]["label"] = "Wo|rk\nx"
@@ -134,6 +156,10 @@ class RenderProcessTest(SwitchCase):
         super().setUp()
         self.env(FAKE_CLAUDE_AUTH_RC="1")  # a call to `claude auth status` would show in the call log
 
+    def files(self):
+        return {n: (self.ais_dir / n).read_bytes() if (self.ais_dir / n).exists() else None
+                for n in ("state.json", "config.json")}
+
     def render(self, timeout=20, **env):
         e = dict(os.environ, PYTHONPATH=str(SRC), HOME=str(self.home), **env)
         t = time.monotonic()
@@ -149,6 +175,7 @@ class RenderProcessTest(SwitchCase):
     def test_render_end_to_end(self):
         self.last_used("work")
         self.env(FAKE_PGREP_OUT="")
+        before = self.files()
         code, out, err, _ = self.render()
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
@@ -158,7 +185,7 @@ class RenderProcessTest(SwitchCase):
         self.assertTrue(any(ln.startswith("--Resume in Personal | bash=") and "param3=" + UUID in ln
                             for ln in lines), out)
         self.assertNotIn("auth", self.calls_text())
-        self.assertFalse((self.ais_dir / "state.json").exists() and "menu" in self.state())
+        self.assertEqual(before, self.files())
         self.assertFalse((self.ais_dir / "ais.log").exists())
 
     def test_render_never_reads_stdin(self):
@@ -173,13 +200,26 @@ class RenderProcessTest(SwitchCase):
                  FAKE_LSOF_CHILD_FILE=str(child))
         code, out, _, took = self.render(timeout=15)
         self.assertEqual(code, 0)
-        self.assertLess(took, 5.5)
+        self.assertLess(took, 5.0)
         self.assertTrue(out.startswith("ais ⚠\n---\n"), out)
         self.assertNotIn("bash=", out)
         pid = int(child.read_text())
         time.sleep(0.3)
         with self.assertRaises(OSError):  # no child left behind
             os.kill(pid, 0)
+
+    def test_render_deadline_kills_hung_keychain_check(self):
+        child = self.home / "security.child"
+        self.env(FAKE_PGREP_OUT="", FAKE_SECURITY_SLEEP="30", FAKE_SECURITY_CHILD_FILE=str(child))
+        code, out, _, took = self.render(timeout=15)  # no cache: the Keychain check hangs, so the 4.5 s deadline fires
+        self.assertEqual(code, 0)
+        self.assertGreater(took, 4.0)
+        self.assertLess(took, 5.0)
+        self.assertEqual(out, "ais ⚠\n---\nais: timed out after 4.5 s\n")
+        self.assertNotIn("bash=", out)
+        time.sleep(0.3)
+        with self.assertRaises(OSError):
+            os.kill(int(child.read_text()), 0)
 
     def test_malformed_config_is_ais_warning_not_traceback(self):
         (self.ais_dir / "config.json").write_text("{")

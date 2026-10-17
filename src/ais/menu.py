@@ -11,13 +11,13 @@ from typing import Callable, Dict, List, NoReturn
 from ais import core, procs
 from ais.accounts import NAME_RE
 
-BUDGET = 5.0  # FR-4.11 overall limit
-DEADLINE = 4.5  # leaves time to kill children and print
+DEADLINE = 4.5  # FR-4.11 allows 5 s; the rest is for killing children and printing
 
 
 def sanitize(text: str) -> str:
-    """FR-4.12: drop `|` and every control or format character (newlines included)."""
-    return "".join(c for c in text if c != "|" and not unicodedata.category(c).startswith("C"))
+    """FR-4.12: drop `|`, line and paragraph separators and every control or format character."""
+    return "".join(c for c in text if c != "|" and unicodedata.category(c) not in ("Zl", "Zp")
+                   and not unicodedata.category(c).startswith("C"))
 
 
 def _name(name: str) -> str:
@@ -53,7 +53,8 @@ def render(status: dict, privacy: bool, ais_path: str) -> str:
     """The menu text. Untrusted text (titles, folders, labels) never starts a line or enters an action."""
     bash = _bash(ais_path)
     accounts = status["accounts"]
-    labels = {a["name"]: sanitize(a["label"]) for a in accounts}
+    # a leading "-" would make the line a submenu or separator
+    labels = {a["name"]: sanitize(a["label"]).lstrip("-") or _name(a["name"]) for a in accounts}
     recent = status["recent"]
     first = recent[0]["last_used"] if recent else None
     out = [labels.get(first, "ais") if first else "ais", "---"]
@@ -76,8 +77,12 @@ def render(status: dict, privacy: bool, ais_path: str) -> str:
                 if a["name"] != s["last_used"]:
                     out.append("--Resume in %s | %s param1=switch param2=--session param3=%s param4=%s terminal=true"
                                % (labels[a["name"]], bash, sid, _name(a["name"])))
-    for m in status["self_check"]["messages"]:
-        out.append("Warning: " + sanitize(m))
+    msgs = status["self_check"]["messages"]
+    if privacy:
+        if msgs:
+            out.append("%d warnings" % len(msgs))
+    else:
+        out.extend("Warning: " + sanitize(m) for m in msgs)
     out.append("---")
     for a in accounts:
         out.append("Open %s Desktop | %s param1=desktop param2=%s terminal=false"
@@ -109,7 +114,7 @@ def cmd_menu_render(make_ctx: Callable[[], core.Context], ais_path: str, started
     t.join(max(0.0, started + DEADLINE - time.monotonic()))
     if t.is_alive():
         procs.kill_live()
-        box.setdefault("out", _failure("timed out after %g s" % BUDGET))
+        box.setdefault("out", _failure("timed out after %g s" % DEADLINE))
     sys.stdout.write(box["out"] + "\n")
     sys.stdout.flush()
     os._exit(0)
