@@ -21,6 +21,8 @@ class Provider(Protocol):
     resume_flags: Tuple[str, ...]  # long flags that resume or fork a session
     short_resume_letters: str  # short flags (single letters) that resume a session
     process_name: str  # exact process name of a running session (pgrep -x)
+    cred_dir_root: str  # folder under home that holds extra accounts' credDirs
+    shared_data_note: str  # FR-2.7: what is shared between accounts
 
     def default_settings_roots(self) -> Dict[str, Path]: ...
 
@@ -36,6 +38,8 @@ class Provider(Protocol):
     def resume_command(self, session_id: str) -> List[str]: ...
 
     def start_command(self, args: Sequence[str]) -> List[str]: ...
+
+    def auth_status_command(self) -> List[str]: ...
 
     def login_command(self) -> List[str]: ...
 

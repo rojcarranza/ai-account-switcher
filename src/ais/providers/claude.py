@@ -218,6 +218,9 @@ class ClaudeProvider:
     resume_flags = ("--resume", "--continue", "--from-pr", "--fork-session")
     short_resume_letters = "rc"
     process_name = PROCESS_NAME
+    cred_dir_root = ".claude-accounts"  # relative to home; where extra accounts' credDirs live
+    shared_data_note = ("Shared memory, CLAUDE.md and settings in ~/.claude are sent with every session "
+                        "on either account, not only on resume.")
 
     def default_settings_roots(self) -> Dict[str, Path]:
         return default_settings_roots()
@@ -337,7 +340,7 @@ class ClaudeProvider:
 
     def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
         env, _ = self.env_for(account, base_env)
-        rc, out, warn, _ = procs.run(["claude", "auth", "status", "--json"], AUTH_TIMEOUT, env)
+        rc, out, warn, _ = procs.run(self.auth_status_command(), AUTH_TIMEOUT, env)
         if not warn and rc == 0:
             try:
                 data = json.loads(out)
@@ -373,6 +376,9 @@ class ClaudeProvider:
 
     def start_command(self, args: Sequence[str]) -> List[str]:
         return ["claude"] + list(args)
+
+    def auth_status_command(self) -> List[str]:
+        return ["claude", "auth", "status", "--json"]
 
     def login_command(self) -> List[str]:
         return ["claude", "auth", "login"]

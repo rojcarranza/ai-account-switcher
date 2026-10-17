@@ -4,6 +4,12 @@ from typing import Dict, List, Tuple
 class FakeProvider:
     """Minimal provider for registry tests."""
 
+    cred_dir_root = ".fake-accounts"
+    shared_data_note = "fake shared data"
+
+    def auth_status_command(self) -> List[str]:
+        return ["fake", "status"]
+
     def env_for(self, account, base_env: Dict[str, str]) -> Tuple[Dict[str, str], List[str]]:
         return dict(base_env), []
 
