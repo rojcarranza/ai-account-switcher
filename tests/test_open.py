@@ -149,3 +149,14 @@ class OpenTest(TempHomeCase):
                    FAKE_LSOF_OUT="p7\nn/tmp/café a b")
         out = subprocess.run([sys.executable, "-c", code], env=env, stdout=subprocess.PIPE).stdout
         self.assertEqual(out.decode("utf-8"), "/tmp/café a b")
+
+    def test_ps_exit_1_keeps_surviving_process(self):
+        self.fake([(7, "claude", str(self.folder))])
+        self.env(FAKE_PS_RC="1")
+        self.assertEqual(self.pid(), 7)
+
+    def test_ps_exit_1_without_lines_warns(self):
+        self.env(FAKE_PGREP_OUT="7", FAKE_PS_OUT="", FAKE_PS_RC="1")
+        found, warns = procs.process_cwds("claude", 5)
+        self.assertEqual(found, {})
+        self.assertTrue(warns and "ps" in warns[0])

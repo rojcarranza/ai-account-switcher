@@ -53,17 +53,19 @@ def process_cwds(name: str, timeout: float) -> Tuple[Dict[int, Tuple[str, Path]]
         return {}, ["pgrep -x %s failed (exit %s)" % (name, rc)]
     plist = ",".join(pids)
     rc, ps_out, warn = _run(["ps", "-o", "pid=,args=", "-p", plist], timeout)
-    if warn or rc != 0:
+    if warn or rc not in (0, 1):  # ps exits 1 when some pid vanished
         return {}, [warn or "ps failed (exit %s)" % rc]
-    rc, ls_out, warn = _run(["lsof", "-a", "-d", "cwd", "-p", plist, "-Fn"], timeout,
-                            dict(os.environ, LC_ALL="en_US.UTF-8"))
-    if warn or rc not in (0, 1):  # lsof exits 1 when some pid vanished
-        return {}, [warn or "lsof failed (exit %s)" % rc]
     args = {}
     for line in ps_out.splitlines():
         pid, _, rest = line.strip().partition(" ")
         if pid.isdigit():
             args[int(pid)] = rest.strip()
+    if not args:
+        return {}, ["ps listed no process for pids %s" % plist]
+    rc, ls_out, warn = _run(["lsof", "-a", "-d", "cwd", "-p", plist, "-Fn"], timeout,
+                            dict(os.environ, LC_ALL="en_US.UTF-8"))
+    if warn or rc not in (0, 1):  # lsof exits 1 when some pid vanished
+        return {}, [warn or "lsof failed (exit %s)" % rc]
     result = {}  # type: Dict[int, Tuple[str, Path]]
     pid = None  # type: Optional[int]
     for line in ls_out.splitlines():
