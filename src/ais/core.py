@@ -275,9 +275,12 @@ def _ask(prompt: str) -> str:
     return sys.stdin.readline().strip()
 
 
-def _open_pids(provider: Provider) -> Mapping[int, Tuple[str, Path]]:
+def _open_pids(provider: Provider, sink: Optional[List[str]] = None) -> Mapping[int, Tuple[str, Path]]:
     found, warnings = procs.process_cwds(provider.process_name, PROCESS_TIMEOUT)
-    guards.print_warnings(warnings)  # FR-3.11 check failed: warn and go on
+    if sink is None:
+        guards.print_warnings(warnings)  # FR-3.11 check failed: warn and go on
+    else:
+        sink.extend(warnings)
     return found
 
 
@@ -433,8 +436,11 @@ def _iso_utc(ts: float) -> Optional[str]:
         return None
 
 
-def gather_status(ctx: Context, cache_only: bool) -> dict:
-    """FR-4.6 dict (plus credential source and error); unreadable or unwritable state becomes a self-check message."""
+def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[str]] = None) -> dict:
+    """FR-4.6 dict (plus credential source and error); unreadable or unwritable state becomes a self-check message.
+
+    Process-check warnings go to `open_warnings` when given (the menu treats them as a failure), else to stderr.
+    """
     provider = ctx.provider_for(ctx.config.accounts[ctx.config.default])
     extra = []  # type: List[str]
     accounts = []
@@ -448,7 +454,7 @@ def gather_status(ctx: Context, cache_only: bool) -> dict:
     everything = provider.recent_sessions(sys.maxsize, cache)  # one scan serves both lists
     newest = next((s for s in everything if provider.in_folder(s, ctx.cwd)), None)
     recent = everything[:RECENT_COUNT]
-    found = _open_pids(provider)  # one process scan serves every open check
+    found = _open_pids(provider, open_warnings)  # one process scan serves every open check
     try:  # read once; a corrupt state.json leaves every last-used unknown
         sessions = ctx.store.read_json("state.json").get("sessions") or {}
     except AisError as e:

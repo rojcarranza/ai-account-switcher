@@ -4,9 +4,19 @@ import re
 import signal
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 _ESCAPE = re.compile(rb"\\x([0-9a-fA-F]{2})")
+_LIVE = set()  # type: Set[subprocess.Popen]  # children started by run() that have not finished
+
+
+def kill_live() -> None:
+    """SIGKILL the process group of every child run() has started and not yet reaped (FR-4.11)."""
+    for proc in list(_LIVE):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
 
 
 def run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = None,
@@ -22,6 +32,14 @@ def run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = N
                                 start_new_session=True, env=env)
     except OSError as e:
         return None, "", "cannot run %s: %s" % (tool, e), ""
+    _LIVE.add(proc)
+    try:
+        return _wait(proc, tool, timeout)
+    finally:
+        _LIVE.discard(proc)
+
+
+def _wait(proc: "subprocess.Popen[str]", tool: str, timeout: float) -> Tuple[Optional[int], str, Optional[str], str]:
     try:
         out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
