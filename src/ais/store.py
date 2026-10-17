@@ -5,17 +5,27 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from typing import Callable, ContextManager, Iterator, Optional
 
 from ais.errors import AisError
 
 EXIT_CANNOT_WRITE = 73
+EXIT_CONFIG = 78
 LOG_MAX = 1024 * 1024
+
+
+def _sync(fd: int) -> None:
+    # macOS fsync does not flush the drive cache; F_FULLFSYNC does
+    if hasattr(fcntl, "F_FULLFSYNC"):
+        fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+    else:
+        os.fsync(fd)
 
 
 class Store:
     def __init__(self, home: Path):
         self.dir = Path(home) / ".config" / "ais"
+        self._held = set()  # lock names held by this instance (flock is not re-entrant)
 
     def _ensure_dir(self) -> None:
         # chmod after mkdir so the mode holds under any umask
@@ -34,6 +44,9 @@ class Store:
 
     @contextlib.contextmanager
     def _flock(self, name: str) -> Iterator[None]:
+        if name in self._held:
+            yield
+            return
         try:
             self._ensure_dir()
             fd = self._open(name, os.O_RDWR)
@@ -41,19 +54,29 @@ class Store:
             raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (self.dir / name, e))
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
+            self._held.add(name)
             yield
         finally:
+            self._held.discard(name)
             os.close(fd)  # closing releases the flock
 
-    def switch_mutex(self):
+    def switch_mutex(self) -> ContextManager[None]:
         return self._flock("switch.lock")
 
     def read_json(self, name: str) -> dict:
+        path = self.dir / name
         try:
-            with open(str(self.dir / name)) as f:
-                return json.load(f)
+            with open(str(path)) as f:
+                data = json.load(f)
         except FileNotFoundError:
             return {}
+        except OSError as e:
+            raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+        except ValueError as e:
+            raise AisError(EXIT_CONFIG, "%s: invalid JSON: %s" % (path, e))
+        if not isinstance(data, dict):
+            raise AisError(EXIT_CONFIG, "%s: top level is not an object" % path)
+        return data
 
     def update_json(self, name: str, fn: Callable[[dict], dict]) -> dict:
         path = self.dir / name
@@ -65,13 +88,20 @@ class Store:
                 with os.fdopen(fd, "w") as f:
                     json.dump(new, f)
                     f.flush()
-                    os.fsync(f.fileno())
+                    _sync(f.fileno())
                 os.replace(tmp, str(path))
-            except OSError as e:
+                dfd = os.open(str(self.dir), os.O_RDONLY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except BaseException as e:
                 if tmp:
                     with contextlib.suppress(OSError):
                         os.unlink(tmp)
-                raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+                if isinstance(e, OSError):
+                    raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+                raise
             return new
 
     def prune_state(self, exists: Callable[[str], bool]) -> None:
