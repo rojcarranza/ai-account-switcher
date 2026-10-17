@@ -117,4 +117,4 @@ make lint test build
 
 - Single test: `python3 -m unittest tests.test_cli.CliTest.test_version`
 - Run from source: `PYTHONPATH=src python3 -m ais status`
-- Python 3.9 syntax only. Rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/). Build status: [docs/progress.md](docs/progress.md), [docs/spike-results.md](docs/spike-results.md).
+- Python 3.9 syntax only. Rules: [CLAUDE.md](CLAUDE.md). Scope: [docs/brief.md](docs/brief.md). Design: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/). Build status: [docs/progress.md](docs/progress.md), [docs/spike-results.md](docs/spike-results.md).
