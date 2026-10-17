@@ -1,11 +1,14 @@
+import os
+import re
 import shlex
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from ais import guards, runner
-from ais.accounts import Account, Config
+from ais.accounts import EXIT_USAGE, Account, Config
 from ais.errors import AisError
 from ais.providers.base import Provider
 from ais.store import EXIT_CONFIG, Store
@@ -113,4 +116,57 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
         ctx.store.log("login", acc.name, "", "exit %d" % rc)
     except AisError as e:  # claude already ran: its exit code wins over a failed log write
         guards.print_warnings([e.message])
+    return rc
+
+
+_SWITCH_HINT = "use `ais switch` to resume a session"
+_RESUME_FLAGS = ("--resume", "--continue")
+
+
+def _check_run_args(args: List[str], allow_api_key: bool) -> None:
+    for a in args:
+        flag = a.split("=", 1)[0]
+        if flag in _RESUME_FLAGS or a in ("-r", "-c") or (re.match(r"^-[A-Za-z]{2,}$", a) and set(a) & {"r", "c"}):
+            raise AisError(EXIT_USAGE, "ais run does not take %s; %s" % (a, _SWITCH_HINT))
+        if flag == "--settings" and not allow_api_key:
+            raise AisError(EXIT_USAGE, "ais run does not take --settings (it can set an API key); %s" % _SWITCH_HINT)
+
+
+def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key: bool, dry_run: bool) -> int:
+    _check_run_args(args, allow_api_key)
+    acc = ctx.config.get(account or ctx.config.default)
+    provider = ctx.provider_for(acc)
+    env, warnings = provider.env_for(acc, ctx.env)
+    guards.print_warnings(warnings)
+    risks = provider.billing_risks(env, ctx.cwd, args, ctx.settings_roots or provider.default_settings_roots())
+    guards.refuse_on_risks(risks, allow_api_key)
+    cmd = provider.start_command(args)
+    if dry_run:
+        print(provider.describe_env(env) + " ".join(shlex.quote(a) for a in cmd))
+        return 0
+    launched = time.time()
+    try:
+        rc = runner.run_claude(cmd, env, ctx.cwd, acc.label, on_started=lambda: None)
+    except AisError as e:
+        if e.code == 69:
+            raise AisError(69, "%s; %s" % (e.message, provider.install_hint))
+        raise
+    session_id = ""
+    try:  # claude already ran: its exit code wins over a failed record or log write
+        s = provider.newest_session(ctx.cwd, Cache(ctx.store))
+        if s is not None:
+            st = os.stat(str(s.transcript))
+            if getattr(st, "st_birthtime", st.st_mtime) >= launched - 2:
+                session_id = s.id
+                at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                def fn(d: dict) -> dict:
+                    sessions = d.get("sessions")
+                    d["sessions"] = sessions = sessions if isinstance(sessions, dict) else {}
+                    sessions[str(s.transcript)] = {"account": acc.name, "at": at}
+                    return d
+                ctx.store.update_json("state.json", fn)
+        ctx.store.log("run", acc.name, session_id, "exit %d" % rc)
+    except (AisError, OSError) as e:
+        guards.print_warnings([getattr(e, "message", str(e))])
     return rc
