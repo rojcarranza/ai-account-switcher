@@ -1,6 +1,34 @@
-from typing import Dict, Optional, Tuple
+import time
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
+from ais.accounts import Account
 from ais.store import Store
+
+CREDENTIAL_TTL = 600
+
+
+def credential_state(store: Store, provider: Any, account: Account, cache_only: bool,
+                     base_env: Mapping[str, str],
+                     now: Callable[[], float] = time.time) -> Tuple[str, str, str]:
+    """(state, source, error); `auth status` results are cached 10 minutes, Keychain ones are not."""
+    entries = store.read_json("cache.json").get("credentials", {})
+    e = entries.get(account.name) if isinstance(entries, dict) else None
+    if isinstance(e, dict) and e.get("cred_dir") == account.cred_dir \
+            and isinstance(e.get("at"), (int, float)) and now() - e["at"] < CREDENTIAL_TTL \
+            and all(isinstance(e.get(k), str) for k in ("state", "source", "error")):
+        return e["state"], e["source"], e["error"]
+    if cache_only:
+        return provider.keychain_credential(account)
+    result = provider.has_credential(account, base_env)
+    if result[1] == "auth status":
+        def fn(d: dict) -> dict:
+            creds = d.get("credentials")
+            d["credentials"] = creds = creds if isinstance(creds, dict) else {}
+            creds[account.name] = {"cred_dir": account.cred_dir, "state": result[0],
+                                   "source": result[1], "error": result[2], "at": now()}
+            return d
+        store.update_json("cache.json", fn)
+    return result
 
 
 class Cache:

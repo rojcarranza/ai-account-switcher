@@ -8,5 +8,15 @@ if [ "${1:-}" = "--version" ]; then
     echo "${FAKE_CLAUDE_VERSION:-2.1.301} (Claude Code)"
     exit 0
 fi
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+    [ -n "${FAKE_CALL_LOG:-}" ] && echo "claude $*" >> "$FAKE_CALL_LOG"
+    sleep "${FAKE_CLAUDE_AUTH_SLEEP:-0}"
+    if [ -n "${FAKE_CLAUDE_AUTH_JSON:-}" ]; then
+        printf '%s\n' "$FAKE_CLAUDE_AUTH_JSON"
+    else
+        echo '{"loggedIn": true, "email": "other@example.com", "orgId": "o"}'
+    fi
+    exit "${FAKE_CLAUDE_AUTH_RC:-0}"
+fi
 echo "fake claude: unsupported arguments: $*" >&2
 exit 2
