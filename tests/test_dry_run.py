@@ -26,12 +26,15 @@ class DryRunTest(SwitchCase):
         (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": str(plugin)}))
         (self.ais_dir / "snapshots").mkdir()
         (self.home / "Applications" / "Claude.app").mkdir(parents=True)  # found on Linux CI too
+        (self.home / "Applications" / "SwiftBar.app").mkdir()
+        (self.home / "plugins").mkdir()
+        self.env(FAKE_SWIFTBAR_DIR=str(self.home / "plugins"))
         log_dir = tempfile.mkdtemp()  # outside the hashed HOME
         self.addCleanup(shutil.rmtree, log_dir)
         log = Path(log_dir) / "calls.log"
         self.env(FAKE_CALL_LOG=str(log))
         for cmd in (["setup"], ["switch", "work"], ["run", "work"], ["login", "work"], ["desktop", "work"],
-                    ["uninstall"]):
+                    ["menu", "install"], ["menu", "uninstall"], ["uninstall"]):
             with self.subTest(cmd=cmd[0]):
                 before = tree_hash(self.home)
                 log.write_text("")
@@ -40,5 +43,8 @@ class DryRunTest(SwitchCase):
                 if cmd != ["setup"]:
                     self.assertNotIn("? [", err)  # dry-run asks nothing: no [y/N] or [1-n] prompt
                 self.assertEqual(tree_hash(self.home), before, sorted(str(q) for q in self.home.rglob('*')))
-                self.assertEqual(log.read_text(), "ps -x -ww -o pid=,args=\n" if cmd[0] == "desktop" else "")
+                expected = {"desktop": "ps -x -ww -o pid=,args=\n"}.get(cmd[0], "")
+                if cmd == ["menu", "install"]:
+                    expected = "defaults read com.ameba.SwiftBar PluginDirectory\n"
+                self.assertEqual(log.read_text(), expected)
                 self.assertEqual(plugin.read_text(), "plugin")

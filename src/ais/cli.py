@@ -47,6 +47,9 @@ def _parser() -> argparse.ArgumentParser:
     menu_p = sub.add_parser("menu", help="SwiftBar menu", allow_abbrev=False)
     menu_sub = menu_p.add_subparsers(dest="menu_command", parser_class=_Parser)
     menu_sub.add_parser("render", help="print the SwiftBar menu", allow_abbrev=False)
+    for name, text in (("install", "write the SwiftBar plugin"), ("uninstall", "remove the SwiftBar plugin")):
+        sp = menu_sub.add_parser(name, help=text, allow_abbrev=False)
+        sp.add_argument("--dry-run", action="store_true", help="print what would happen, change nothing")
     return p
 
 
@@ -98,7 +101,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return core.cmd_desktop(_context(started, cwd_optional=True), ns.account or "", ns.dry_run)
         if ns.command == "menu":
             if ns.menu_command is None:
-                raise AisError(EXIT_USAGE, "a menu command is required: render")
+                raise AisError(EXIT_USAGE, "a menu command is required: render, install, uninstall")
+            if ns.menu_command in ("install", "uninstall"):
+                fn = core.cmd_menu_install if ns.menu_command == "install" else core.cmd_menu_uninstall
+                return fn(_context(started, cwd_optional=True), ns.dry_run)
             menu.cmd_menu_render(lambda: _context(started, cwd_optional=True), os.path.abspath(sys.argv[0]), started)
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)

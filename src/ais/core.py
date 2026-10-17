@@ -3,8 +3,10 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import sys
+import tempfile
 import time
 import unicodedata
 import uuid
@@ -671,16 +673,18 @@ def _remove(path: Path) -> None:
         raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
 
 
-def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
-    """FR-5.3, FR-5.5: list, ask, remove ~/.config/ais and the recorded plugin, print the manual steps. No lock."""
+def _yes(answers: Optional[Iterable[str]]) -> Callable[[str], bool]:
+    """A yes/no asker: the scripted answers when given (tests), else stdin."""
     it = iter(answers) if answers is not None else None
 
     def yes(prompt: str) -> bool:
         a = next(it, "") if it is not None else _ask(prompt)
         return a.strip().lower() in ("y", "yes")
+    return yes
 
-    store, home = ctx.store, ctx.store.home
-    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+
+def _recorded_plugin(store: Store) -> Optional[Path]:
+    """The SwiftBar plugin state.json records (an absolute file or symlink that exists), else None with a warning."""
     plugin = None  # type: Optional[Path]
     try:
         recorded = store.read_json("state.json").get("menu_plugin")
@@ -696,6 +700,15 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     except AisError:
         print("ais: warning: state.json is unreadable; a SwiftBar plugin, if you installed one, "
               "must be removed by hand", file=sys.stderr)
+    return plugin
+
+
+def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-5.3, FR-5.5: list, ask, remove ~/.config/ais and the recorded plugin, print the manual steps. No lock."""
+    yes = _yes(answers)
+    store, home = ctx.store, ctx.store.home
+    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+    plugin = _recorded_plugin(store)
     entries = []  # type: List[Path]
     here = True
     try:  # os.lstat, not pathlib: 3.14 pathlib reports EACCES as "missing", 3.9 raises
@@ -766,4 +779,98 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     else:
         _remove(store.dir)
     manual()
+    return 0
+
+
+EXIT_SWIFTBAR = 71
+EXIT_MISSING_TOOL = 69
+PLUGIN_NAME = "ais.1m.sh"
+SWIFTBAR_DOMAIN = "com.ameba.SwiftBar"
+_PATH_UNSAFE = re.compile(r'["$`\\:\x00-\x1f\x7f]')  # would break the quoting or the PATH list in the plugin
+
+
+def _swiftbar_folder(ctx: Context) -> str:
+    """FR-4.10: SwiftBar's configured plugin folder, or exit 71."""
+    home = ctx.store.home
+    roots = ctx.app_roots if ctx.app_roots is not None else [Path("/Applications"), home / "Applications"]
+    folder = ""
+    if any((r / "SwiftBar.app").is_dir() for r in roots):
+        rc, out, _, _ = procs.run(["defaults", "read", SWIFTBAR_DOMAIN, "PluginDirectory"], PROCESS_TIMEOUT)
+        folder = out.strip() if rc == 0 else ""
+        if folder.startswith("~/"):
+            folder = str(home / folder[2:])
+    if not folder or not os.path.isdir(folder):
+        raise AisError(EXIT_SWIFTBAR, "SwiftBar is not installed or has no plugin folder; ais never installs it.\n"
+                       "Install it with: brew install --cask swiftbar\n"
+                       "then open SwiftBar and choose a plugin folder, and run this again.")
+    return folder
+
+
+def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-4.7, FR-4.10: show the plugin, ask, write it atomically into SwiftBar's plugin folder, record it."""
+    store, home = ctx.store, ctx.store.home
+    folder = os.path.realpath(_swiftbar_folder(ctx))
+    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+    found = shutil.which(provider.start_command([])[0], path=ctx.env.get("PATH", ""))
+    if not found:
+        raise AisError(EXIT_MISSING_TOOL, provider.install_hint)
+    claude_dir = os.path.dirname(found)
+    for part in (str(home), claude_dir):
+        if _PATH_UNSAFE.search(part):
+            raise AisError(EXIT_CONFIG, "cannot build the plugin PATH: %r has a quote, $, backtick, backslash, "
+                           "colon or control character" % part)
+    target = os.path.join(folder, PLUGIN_NAME)
+    exists = os.path.lexists(target)
+    if exists and not stat.S_ISREG(os.lstat(target).st_mode):  # never follow a symlink or replace a folder
+        raise AisError(EXIT_CANNOT_WRITE, "%s is not a regular file; remove it by hand" % target)
+    body = '#!/bin/sh\nexport PATH="%s/.local/bin:%s:/usr/bin:/bin"\nexec ais menu render\n' % (home, claude_dir)
+    print("%s %s%s:\n%s" % ("Would write" if dry_run else "Will write", target, " (replace)" if exists else "", body))
+    if not (home / ".local" / "bin" / "ais").is_file():
+        print("ais: warning: %s is missing; the menu finds no ais until `make install`"
+              % (home / ".local" / "bin" / "ais"), file=sys.stderr)
+    if dry_run:
+        return 0
+    prev = _recorded_plugin(store)
+    if prev is not None and str(prev) != target:
+        print("ais: warning: state.json also records %s; remove it by hand" % prev, file=sys.stderr)
+    if not _yes(answers)("Write this file? [y/N] "):
+        print("Nothing written.", file=sys.stderr)
+        return EXIT_DECLINED
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix="." + PLUGIN_NAME + ".")
+        with os.fdopen(fd, "w") as f:
+            f.write(body)
+        os.chmod(tmp, 0o700)  # SwiftBar must execute it
+        os.replace(tmp, target)
+        tmp = None
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (target, e))
+    finally:
+        if tmp is not None:
+            _unlink(Path(tmp))
+    store.update_json("state.json", lambda d: dict(d, menu_plugin=target))
+    print("Wrote " + target)
+    return 0
+
+
+def cmd_menu_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-4.7: remove only the recorded ais.1m.sh after a yes, and forget it in state.json."""
+    plugin = _recorded_plugin(ctx.store)
+    if plugin is None:
+        print("No SwiftBar plugin recorded.")
+        return 0
+    if plugin.name != PLUGIN_NAME:  # untrusted state: never remove another file
+        print("ais: warning: state.json records %s, which is not named %s; remove it by hand" % (plugin, PLUGIN_NAME),
+              file=sys.stderr)
+        return 0
+    print("%s %s" % ("Would remove" if dry_run else "Will remove", plugin))
+    if dry_run:
+        return 0
+    if not _yes(answers)("Remove it? [y/N] "):
+        print("Nothing removed.", file=sys.stderr)
+        return EXIT_DECLINED
+    _unlink(plugin)
+    ctx.store.update_json("state.json", lambda d: {k: v for k, v in d.items() if k != "menu_plugin"})
+    print("Removed " + str(plugin))
     return 0

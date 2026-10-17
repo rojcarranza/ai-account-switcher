@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fake defaults: logs its argv to $FAKE_CALL_LOG; prints $FAKE_SWIFTBAR_DIR when set, else exits 1 as for an unset domain.
+[ -n "${FAKE_CALL_LOG:-}" ] && echo "defaults $*" >> "$FAKE_CALL_LOG"
+if [ -n "${FAKE_SWIFTBAR_DIR:-}" ]; then
+    printf '%s\n' "$FAKE_SWIFTBAR_DIR"
+    exit 0
+fi
+echo "Domain com.ameba.SwiftBar does not exist" >&2
+exit 1
