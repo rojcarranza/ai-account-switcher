@@ -250,3 +250,18 @@ class UninstallTest(TempHomeCase):
         self.assertIn("Kept %s (a symlink to %s)" % (self.ais_dir / "snapshots", real), out)
         self.assertNotIn("bytes", out)
         self.assertEqual((real / "big").read_text(), "x" * 100)
+
+    def test_uninstall_plugin_swapped_for_folder_never_removed_recursively(self):
+        self.record_plugin()
+
+        def swap(prompt):  # after the file check, before removal
+            self.plugin.unlink()
+            self.plugin.mkdir()
+            (self.plugin / "inner").write_text("keep")
+            return "y"
+
+        with mock.patch("ais.core._ask", side_effect=swap):
+            code, _, err = self.ais("")
+        self.assertEqual(code, 73, err)
+        self.assertIn(str(self.plugin), err)
+        self.assertEqual((self.plugin / "inner").read_text(), "keep")

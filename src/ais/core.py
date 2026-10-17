@@ -613,15 +613,25 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     return 0
 
 
+def _unlink(path: Path) -> None:
+    """Unlink a file or symlink, never a folder; a missing path is skipped."""
+    try:
+        os.unlink(str(path))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+
+
 def _remove(path: Path) -> None:
     """Remove a file, symlink or folder tree without following symlinks; a missing path is skipped."""
     try:
-        if path.is_symlink() or not path.is_dir():
-            os.unlink(str(path))
-        else:
-            for child in sorted(path.iterdir()):
-                _remove(child)
-            os.rmdir(str(path))
+        if path.is_symlink() or not path.is_dir():  # inside try: 3.9 raises PermissionError here
+            _unlink(path)
+            return
+        for child in sorted(path.iterdir()):
+            _remove(child)
+        os.rmdir(str(path))
     except FileNotFoundError:
         pass
     except OSError as e:
@@ -703,7 +713,7 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         return EXIT_DECLINED
     keep = snaps_here and not yes("Also delete the saved snapshots in %s? [y/N] " % snaps)
     if plugin is not None:
-        _remove(plugin)  # checked above: a file or symlink, so unlinked
+        _unlink(plugin)  # untrusted path: never a folder, even if swapped in after the check
     if keep:
         for e in entries:
             if e != snaps:
