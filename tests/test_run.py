@@ -164,6 +164,8 @@ class RunTest(TempHomeCase):
         self.assertEqual(code, 0)
         self.assertIn("sessions is not an object", err)
         self.assertEqual(json.loads((self.ais_dir / "state.json").read_text()), {"sessions": []})
+        lines = self.log_lines()
+        self.assertEqual((len(lines), lines[0]["command"], lines[0]["session_id"]), (1, "run", ""))
 
     def test_run_record_failure_keeps_exit_code(self):
         os.environ["FAKE_CLAUDE_RUN_RC"] = "4"

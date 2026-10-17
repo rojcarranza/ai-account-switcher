@@ -158,8 +158,7 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
         if s is not None:
             st = os.stat(str(s.transcript))
             if getattr(st, "st_birthtime", st.st_mtime) >= launched - 2:
-                session_id = s.id
-                at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                at =datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 def fn(d: dict) -> dict:
                     sessions = d.setdefault("sessions", {})
@@ -168,6 +167,10 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
                     sessions[str(s.transcript)] = {"account": acc.name, "at": at}
                     return d
                 ctx.store.update_json("state.json", fn)
+                session_id = s.id
+    except (AisError, OSError) as e:
+        guards.print_warnings([getattr(e, "message", str(e))])
+    try:  # NFR-OPS: the log line is written even when recording failed
         ctx.store.log("run", acc.name, session_id, "exit %d" % rc)
     except (AisError, OSError) as e:
         guards.print_warnings([getattr(e, "message", str(e))])
