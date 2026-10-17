@@ -257,15 +257,17 @@ class ClaudeProvider:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""
         argv = ["security", "find-generic-password", "-s", keychain_service(account.cred_dir)]
         try:
-            rc = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, timeout=KEYCHAIN_TIMEOUT).returncode
+            r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, timeout=KEYCHAIN_TIMEOUT)
+            rc = r.returncode
         except (OSError, subprocess.TimeoutExpired) as e:
             return "unknown", "keychain", str(e).splitlines()[0] if str(e) else type(e).__name__
         if rc == 0:
             return "yes", "keychain", ""
         if rc == KEYCHAIN_NOT_FOUND:
             return "no", "keychain", ""
-        return "unknown", "keychain", "security exited %d" % rc
+        lines = r.stderr.decode("utf-8", "replace").splitlines()
+        return "unknown", "keychain", "security exited %d%s" % (rc, ": " + lines[0] if lines else "")
 
     def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
         env, _ = self.env_for(account, base_env)

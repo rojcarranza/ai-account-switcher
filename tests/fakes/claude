@@ -10,6 +10,7 @@ if [ "${1:-}" = "--version" ]; then
 fi
 if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
     [ -n "${FAKE_CALL_LOG:-}" ] && echo "claude $*" >> "$FAKE_CALL_LOG"
+    [ -n "${FAKE_CALL_LOG:-}" ] && echo "slot=${CLAUDE_SECURESTORAGE_CONFIG_DIR-<unset>}" >> "$FAKE_CALL_LOG"
     sleep "${FAKE_CLAUDE_AUTH_SLEEP:-0}"
     if [ -n "${FAKE_CLAUDE_AUTH_JSON:-}" ]; then
         printf '%s\n' "$FAKE_CLAUDE_AUTH_JSON"
