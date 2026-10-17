@@ -259,6 +259,9 @@ class ClaudeProvider:
             found = [s for s in found if _same_folder(str(s.folder), target)]
         return found[:limit]
 
+    def in_folder(self, session: Session, folder: Path) -> bool:
+        return _same_folder(str(session.folder), _nfc_real(str(folder)))
+
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
 

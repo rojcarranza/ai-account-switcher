@@ -34,6 +34,9 @@ def _parser() -> argparse.ArgumentParser:
     switch.add_argument("--session")
     switch.add_argument("--dry-run", action="store_true")
     switch.add_argument("--allow-api-key", action="store_true")
+    status = sub.add_parser("status", help="show credentials, the newest session and the self-check",
+                            allow_abbrev=False)
+    status.add_argument("--json", action="store_true")
     return p
 
 
@@ -68,6 +71,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise AisError(EXIT_USAGE, "--pick and --session cannot be combined")
             return core.cmd_switch(_context(started), ns.account, ns.pick, ns.session,
                                    ns.allow_api_key, ns.dry_run)
+        if ns.command == "status":
+            return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)
     except KeyboardInterrupt:
         return 130
