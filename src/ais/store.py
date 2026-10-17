@@ -222,11 +222,11 @@ class Store:
     @staticmethod
     def _plain_copy(paths: List[Path], target: Path) -> None:
         for child in target.iterdir():  # drop what a half-done clone left
-            shutil.rmtree(str(child)) if child.is_dir() else child.unlink()
+            shutil.rmtree(str(child)) if child.is_dir() and not child.is_symlink() else child.unlink()
         if shutil.disk_usage(str(target)).free < 2 * sum(_size(p) for p in paths):
             raise _NoSpace()
         for p in paths:
-            if p.is_dir():
+            if p.is_dir() and not p.is_symlink():
                 shutil.copytree(str(p), str(target / p.name), symlinks=True)
             else:
                 shutil.copy2(str(p), str(target / p.name), follow_symlinks=False)
