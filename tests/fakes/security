@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fake keychain tool: refuses the secret-reading flags (also inside bundled short
-# options such as -ag); else prints $FAKE_SECURITY_ERR to stderr and exits $FAKE_SECURITY_RC.
+# options such as -ag); else prints $FAKE_SECURITY_ERR to stderr and exits $FAKE_SECURITY_RC;
+# with $FAKE_SECURITY_SLEEP it first hangs that many seconds.
 [ -n "${FAKE_CALL_LOG:-}" ] && echo "security $*" >> "$FAKE_CALL_LOG"
 for a in "$@"; do
     case "$a" in
@@ -11,5 +12,10 @@ for a in "$@"; do
             exit 99 ;;
     esac
 done
+if [ -n "${FAKE_SECURITY_SLEEP:-}" ]; then  # hang, leaving a child (pid in $FAKE_SECURITY_CHILD_FILE)
+    sleep "$FAKE_SECURITY_SLEEP" &
+    [ -n "${FAKE_SECURITY_CHILD_FILE:-}" ] && echo $! > "$FAKE_SECURITY_CHILD_FILE"
+    sleep "$FAKE_SECURITY_SLEEP"
+fi
 [ -n "${FAKE_SECURITY_ERR:-}" ] && printf '%s\n' "$FAKE_SECURITY_ERR" >&2
 exit "${FAKE_SECURITY_RC:-0}"
