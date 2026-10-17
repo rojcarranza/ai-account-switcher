@@ -1,6 +1,11 @@
 #!/bin/sh
 # Fake cp: exits 1 when $FAKE_CP_FAIL is set; else logs argv and runs /bin/cp. Drops "-c" (APFS clone, absent on Linux).
 [ -n "${FAKE_CP_FAIL:-}" ] && exit 1
+if [ -n "${FAKE_CP_GATE:-}" ]; then  # touch $FAKE_CP_GATE.waiting, then wait (~20 s max) for $FAKE_CP_GATE
+    : > "$FAKE_CP_GATE.waiting"
+    i=0
+    while [ ! -e "$FAKE_CP_GATE" ] && [ "$i" -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+fi
 [ -n "${FAKE_CALL_LOG:-}" ] && echo "cp $*" >> "$FAKE_CALL_LOG"
 [ "${1:-}" = "-c" ] && shift
 exec /bin/cp "$@"

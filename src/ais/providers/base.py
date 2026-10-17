@@ -20,6 +20,7 @@ class Provider(Protocol):
     install_hint: str
     resume_flags: Tuple[str, ...]  # long flags that resume or fork a session
     short_resume_letters: str  # short flags (single letters) that resume a session
+    process_name: str  # exact process name of a running session (pgrep -x)
 
     def default_settings_roots(self) -> Dict[str, Path]: ...
 
@@ -40,7 +41,9 @@ class Provider(Protocol):
 
     def newest_session(self, folder: Path, cache: Any) -> Optional[Session]: ...
 
-    def recent_sessions(self, limit: int, cache: Any) -> List[Session]: ...
+    def recent_sessions(self, limit: int, cache: Any, folder: Optional[Path] = None) -> List[Session]:
+        """Newest first; only sessions of that folder when one is given."""
+        ...
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]: ...
 

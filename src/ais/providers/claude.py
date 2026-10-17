@@ -8,6 +8,7 @@ import re
 import shlex
 import unicodedata
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -197,6 +198,7 @@ class ClaudeProvider:
     install_hint = "install Claude Code: https://code.claude.com/docs/en/setup"
     resume_flags = ("--resume", "--continue", "--from-pr", "--fork-session")
     short_resume_letters = "rc"
+    process_name = PROCESS_NAME
 
     def default_settings_roots(self) -> Dict[str, Path]:
         return default_settings_roots()
@@ -231,11 +233,37 @@ class ClaudeProvider:
         target = _nfc_real(str(folder))
         return next((s for s in self._scan(cache) if _same_folder(str(s.folder), target)), None)
 
-    def recent_sessions(self, limit: int, cache: Any) -> List[Session]:
-        return self._scan(cache)[:limit]
+    def recent_sessions(self, limit: int, cache: Any, folder: Optional[Path] = None) -> List[Session]:
+        found = self._scan(cache)
+        if folder is not None:
+            target = _nfc_real(str(folder))
+            found = [s for s in found if _same_folder(str(s.folder), target)]
+        return found[:limit]
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)
+
+    def limit_time(self, session: Session, launched_at: float) -> Optional[float]:
+        """Seconds from the last LIMIT_MARKER line before launched_at to the first line at or after it."""
+        last = None  # type: Optional[float]
+        try:
+            with open(str(session.transcript), encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                        # 3.9 fromisoformat does not take "Z"; a naive time has no defined zone: skip it
+                        t = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00"))
+                        if t.tzinfo is None:
+                            continue
+                    except (ValueError, TypeError, KeyError, AttributeError):
+                        continue
+                    if t.timestamp() >= launched_at:
+                        return None if last is None else t.timestamp() - last
+                    if all(d.get(k) == v for k, v in LIMIT_MARKER.items()):
+                        last = t.timestamp()
+        except OSError:
+            pass
+        return None
 
     def open_session_pid(self, session: Session, procs: Mapping[int, Tuple[str, Path]]) -> Optional[int]:
         """Lowest PID of a claude with cwd in the session folder; the daemon and bg-* helpers are not sessions."""
