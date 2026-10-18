@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 
 from ais import cli, core
+from ais.providers import claude
 from ais.providers.claude import ClaudeProvider
+from unittest import mock
 from tests.helpers import SRC
 from tests.test_switch import OTHER, UUID, MISSING, SwitchCase
 
@@ -102,9 +104,51 @@ class RecordsTest(DesktopFixture):
 
     def test_duplicate_session_keeps_newer(self):
         d = self.desktop()
-        self.put(d, record(S1, title="Older", at=100), fname="local_a.json")
-        self.put(d, record(S1, title="Newer", at=200), org="dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+        a = self.put(d, record(S1, title="Newer", at=200), fname="local_a.json")
+        b = self.put(d, record(S1, title="Older", at=100), org="dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+        os.utime(str(a), (2000, 2000))  # read first: "last one wins" would keep Older
+        os.utime(str(b), (1000, 1000))
         self.assertEqual(self.records(d), {S1: ("Newer", 200)})
+
+    def test_deeply_nested_json_skipped(self):
+        d = self.desktop()
+        self.put(d, None, fname="local_deep.json", raw="[" * 200000)
+        self.put(d, record(S1))
+        self.assertEqual(list(self.records(d)), [S1])
+        (d / "config.json").write_text("[" * 200000)
+        self.assertEqual(self.records(d), {})
+
+    def test_fifo_skipped_without_hanging(self):
+        d = self.desktop()
+        sub = d / "claude-code-sessions" / ACCT / ORG
+        sub.mkdir(parents=True)
+        os.mkfifo(str(sub / "local_f.json"))
+        self.put(d, record(S1))
+        self.assertEqual(list(self.records(d)), [S1])
+
+    def test_symlinked_data_folder_or_config_gives_nothing(self):
+        outside = self.home / "outside"
+        outside.mkdir()
+        (outside / "config.json").write_text(json.dumps({"lastKnownAccountUuid": ACCT}))
+        self.put(outside, record(S1))
+        sup = self.folder().parent
+        sup.mkdir(parents=True)
+        os.symlink(str(outside), str(self.folder()))
+        self.assertEqual(self.records(None), {})
+        os.unlink(str(self.folder()))
+        d = self.desktop(config=False)
+        os.symlink(str(outside / "config.json"), str(d / "config.json"))
+        self.put(d, record(S1))
+        self.assertEqual(self.records(d), {})
+
+    def test_cap_keeps_newest_files(self):
+        d = self.desktop()
+        for i, name in enumerate("dcba"):  # path order (a, b first) is the reverse of age order
+            p = self.put(d, record("00000000-0000-4000-8000-00000000000%d" % i), fname="local_%s.json" % name)
+            os.utime(str(p), (2000 - i, 2000 - i))
+        with mock.patch.object(claude, "DESKTOP_MAX_FILES", 2):
+            self.assertEqual(sorted(self.records(d)), ["00000000-0000-4000-8000-000000000000",
+                                                       "00000000-0000-4000-8000-000000000001"])
 
     def test_symlink_out_skipped(self):
         d = self.desktop()

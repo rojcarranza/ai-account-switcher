@@ -6,6 +6,7 @@ import os
 import plistlib
 import re
 import shlex
+import stat
 import unicodedata
 import uuid
 from datetime import datetime
@@ -370,28 +371,38 @@ class ClaudeProvider:
 
     def desktop_records(self, data_dir: Optional[Path], home: Path) -> Dict[str, Tuple[str, int]]:
         """FR-4.19: session ID -> (title, lastActivityAt ms) from Desktop's records; every problem is skipped."""
-        base = data_dir if data_dir is not None else home.joinpath(*DESKTOP_SUPPORT) / DESKTOP_DEFAULT
+        support = home.joinpath(*DESKTOP_SUPPORT)
+        base = data_dir if data_dir is not None else support / DESKTOP_DEFAULT
         out = {}  # type: Dict[str, Tuple[str, int]]
+        root = os.path.realpath(str(base))
 
         def load(p: Path) -> Any:
             try:
-                if p.stat().st_size > DESKTOP_MAX_BYTES:
+                if not os.path.realpath(str(p)).startswith(root + os.sep):  # a link pointing out
+                    return None
+                st = os.stat(str(p))
+                if not stat.S_ISREG(st.st_mode) or st.st_size > DESKTOP_MAX_BYTES:  # a FIFO would block
                     return None
                 with open(str(p), encoding="utf-8") as f:
                     return json.load(f)
-            except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+            except (OSError, ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
                 return None
 
         try:
+            if os.path.dirname(root) != os.path.realpath(str(support)):
+                return out
             cfg = load(base / "config.json")
             acct = cfg.get("lastKnownAccountUuid") if isinstance(cfg, dict) else None
             if not isinstance(acct, str) or not _UUID_RE.fullmatch(acct):  # it goes into a path
                 return out
-            root = os.path.realpath(str(base))
-            files = sorted(base.glob("claude-code-sessions/%s/*/local_*.json" % acct))[:DESKTOP_MAX_FILES]
-            for p in files:
-                if not os.path.realpath(str(p)).startswith(root + os.sep):
+            dated = []  # type: List[Tuple[float, str, Path]]
+            for p in base.glob("claude-code-sessions/%s/*/local_*.json" % acct):
+                try:
+                    dated.append((os.stat(str(p)).st_mtime, str(p), p))
+                except OSError:
                     continue
+            dated.sort(key=lambda t: (-t[0], t[1]))  # the cap keeps the newest files
+            for _, _, p in dated[:DESKTOP_MAX_FILES]:
                 rec = load(p)
                 if not isinstance(rec, dict) or rec.get("isArchived") is True:
                     continue
@@ -402,7 +413,7 @@ class ClaudeProvider:
                 at = at if isinstance(at, int) and not isinstance(at, bool) else 0
                 if sid not in out or at > out[sid][1]:
                     out[sid] = (title if isinstance(title, str) else "", at)
-        except (OSError, ValueError):  # a folder that vanishes or cannot be listed: nothing to show
+        except (OSError, ValueError, RecursionError):  # a folder that vanishes or cannot be listed: nothing to show
             pass
         return out
 
