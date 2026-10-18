@@ -134,7 +134,7 @@ Config schema (`config.json`): `{"version": 1, "default": "<account>", "accounts
 
 ### FR-3 One-command switch, resume and run
 User story: As a developer who just hit a usage limit, I want one command to reopen the same session on my other account so that the agent keeps going without me re-explaining.
-- FR-3.1 WHEN the user runs `ais switch` in a folder with exactly 2 accounts configured THE SYSTEM SHALL resolve the newest session ID for that folder and run `claude --resume <id>` under the account that is not the session's last-used account; IF the last-used account is unknown THEN it SHALL exit with code 64 and print `ais switch <account>` with the account names.
+- FR-3.1 WHEN the user runs `ais switch` in a folder with exactly 2 accounts configured THE SYSTEM SHALL resolve the newest session ID for that folder and run `claude --resume <id>` under the account that is not the session's last-used account; IF the last-used account is unknown THEN it SHALL treat the default account as last-used (a plain `claude` runs on the default account), print a one-line note saying so, and resume under the other account; the FR-2.8 prompt then applies as for a recorded default account.
 - FR-3.2 WHEN the user runs `ais switch <account>` THE SYSTEM SHALL resolve the session the same way and resume it under the named account; IF that is the session's last-used account THEN it SHALL resume there (useful after a crash) without the FR-2.8 prompt.
 - FR-3.3 WHEN the user runs `ais switch --pick [account]` THE SYSTEM SHALL list the 5 newest sessions for the folder (number, time, title, last-used account, open or not), read a number, and resume that session; IF the input is not a listed number THEN it SHALL exit with code 64.
 - FR-3.4 WHEN the user runs `ais switch --session <id> [account]` THE SYSTEM SHALL find that session's transcript, validate its session folder (realpath, existing directory, not a symlink escape), change into it, and resume; IF `<id>` is not a UUID THEN it SHALL exit with code 64, and IF the transcript or folder is not found THEN with code 66.
@@ -335,3 +335,6 @@ Build gates 2026-10-16 (plan task 2, details in `docs/spike-results.md`):
 
 Change 2026-10-16 (Desktop per account, user approved the design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`):
 - FR-6.1 to FR-6.6 added (ADR-0008); FR-5.1 provider methods, FR-5.3 lists Desktop folders, FR-5.4 adds `desktop`; out-of-scope 1 and brief non-goal 1 narrowed; part 2 deferred to rojcarranza/ai-account-switcher#1.
+
+Change 2026-10-17 (user approved, rojcarranza/ai-account-switcher#41):
+- FR-3.1: an unknown last-used account now defaults to the default account instead of exiting 64, so `ais switch` works right after a plain `claude` session hits its limit. Supersedes the 2026-10-16 "[major] unknown last-used account" resolution.

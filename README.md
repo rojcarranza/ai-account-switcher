@@ -50,7 +50,7 @@ Create these? [y/N] y
    ais switch
    ```
 
-That resumes the newest session in this folder on the other account. ais knows "the other account" only for sessions it started or switched (`ais run`, `ais switch`). For a session started with plain `claude`, name the account: `ais switch work`.
+That resumes the newest session in this folder on the other account. A session started with plain `claude` has no ais record, so ais assumes it ran on the default account and says so.
 
 The first switch from one account to the other asks once:
 
