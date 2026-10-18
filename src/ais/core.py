@@ -198,6 +198,8 @@ def _record_last_used(store: Store, session: Session, account: Optional[str], re
         if not isinstance(sessions, dict):
             raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (store.dir / "state.json"))
         key = str(session.transcript)
+        for stale in [k for k in sessions if k != key and not os.path.exists(k)]:  # FR-5.6
+            del sessions[stale]
         previous.append(sessions.get(key))
         if account is not None:
             sessions[key] = {"account": account, "at": at}
