@@ -434,7 +434,8 @@ class ClaudeProvider:
         return out
 
     def desktop_usage(self, data_dir: Optional[Path], home: Path) -> Optional[Dict[str, Any]]:
-        """FR-4.20: {"t": ms, "fh", "sd"} of the newest sample in plan-usage-history.json; None on any problem."""
+        """FR-4.20: {"t": ms, "fh", "sd"} of the newest sample in plan-usage-history.json that is not 0/0
+        (the newest one when all are); None on any problem."""
         support = home.joinpath(*DESKTOP_SUPPORT)
         base = data_dir if data_dir is not None else support / DESKTOP_DEFAULT
         root = os.path.realpath(str(base))
