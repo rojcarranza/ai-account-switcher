@@ -482,7 +482,8 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
         return _last_used(ctx, s, sessions) or (desk[s.id][0] if s.id in desk else None)
 
     def title_of(s: Session) -> str:
-        return (desk[s.id][1] if s.id in desk else "") or s.title
+        t = desk[s.id][1] if s.id in desk else ""
+        return t if t.strip() else s.title
 
     messages = list(dict.fromkeys(provider.self_check() + extra))  # unique, first-seen order
     return {
@@ -582,7 +583,10 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
             except AisError as e:
                 # drop _check_cred_dir's config.json prefix: no config exists yet
                 raise AisError(EXIT_USAGE, "account %s: %s" % (name, e.message.partition(": account %s: " % name)[2]))
-        picked.append(Account(name, label, DEFAULT_PROVIDER, cred))
+        old = existing.get("accounts")
+        old = old.get(name) if isinstance(old, dict) else None
+        desk = old.get("desktop_data_dir") if extra and isinstance(old, dict) else None  # kept for the same extra
+        picked.append(Account(name, label, DEFAULT_PROVIDER, cred, desk if isinstance(desk, str) else None))
 
     new_dirs = [] if ctx.store.dir.exists() else _missing_dirs(ctx.store.dir)
     creates = ["%s/" % d for d in new_dirs]
@@ -595,7 +599,8 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     for c in creates:
         print("  " + c)
     config = {"version": 1, "default": picked[0].name,
-              "accounts": {a.name: {"label": a.label, "provider": a.provider, "credDir": a.cred_dir}
+              "accounts": {a.name: dict({"label": a.label, "provider": a.provider, "credDir": a.cred_dir},
+                                        **({"desktop_data_dir": a.desktop_data_dir} if a.desktop_data_dir else {}))
                            for a in picked},
               "cross_account_ack": existing.get("cross_account_ack", {}),
               "menu_privacy": existing.get("menu_privacy", False)}

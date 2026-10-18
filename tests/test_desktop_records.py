@@ -211,6 +211,10 @@ class StatusTest(DesktopFixture):
         s = self.session(self.status())
         self.assertEqual((s["title"], s["last_used"]), ("Personal newest", "personal"))
 
+    def test_blank_desktop_title_keeps_transcript_title(self):
+        self.put(self.desktop(), record(UUID, title="   "))
+        self.assertEqual(self.session(self.status())["title"], "Main task")
+
     def test_empty_desktop_title_keeps_transcript_title(self):
         self.put(self.desktop(), record(UUID, title=""))
         s = self.session(self.status())

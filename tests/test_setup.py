@@ -99,6 +99,19 @@ class SetupTest(TempHomeCase):
         self.assertEqual(code, 78)
         self.assertIn("config.json", err)
 
+    def test_setup_keeps_desktop_data_dir_of_the_same_extra_account(self):
+        folder = str(self.home / "Library" / "Application Support" / "Claude-Work")
+        self.ais_dir.mkdir(parents=True)
+        (self.ais_dir / "config.json").write_text(json.dumps({"accounts": {
+            "work": {"desktop_data_dir": folder}, "other": {"desktop_data_dir": folder}}}))
+        self.assertEqual(self.ais(BLANK + "y\n")[0], 0)
+        self.assertEqual(self.config()["accounts"]["work"]["desktop_data_dir"], folder)
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["personal"])
+        (self.ais_dir / "config.json").write_text(json.dumps({"accounts": {"personal": {"desktop_data_dir": folder}}}))
+        self.assertEqual(self.ais(BLANK + "y\n")[0], 0)  # picked as default: dropped
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["personal"])
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["work"])
+
     def test_setup_logs_in_only_missing_accounts(self):
         os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.work
         code, _, _ = self.ais(BLANK + "y\n")
