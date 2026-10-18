@@ -126,13 +126,21 @@ class RunTest(TempHomeCase):
         self.assertEqual(self.log_lines()[0]["session_id"], UUID)
 
     def test_run_keeps_other_state(self):
+        other = self.home / "a.jsonl"  # must exist: FR-5.6 drops records of missing transcripts
+        other.write_text("")
         (self.ais_dir / "state.json").write_text(json.dumps(
-            {"other": 1, "sessions": {"/a": {"account": "work", "at": "t"}}}))
+            {"other": 1, "sessions": {str(other): {"account": "work", "at": "t"}}}))
         self.ais("run")
         st = self.state()
         self.assertEqual(st["other"], 1)
-        self.assertIn("/a", st["sessions"])
+        self.assertIn(str(other), st["sessions"])
         self.assertIn(str(self.transcript), st["sessions"])
+
+    def test_run_drops_entries_for_missing_transcripts(self):
+        (self.ais_dir / "state.json").write_text(json.dumps(
+            {"sessions": {str(self.home / "gone.jsonl"): {"account": "work", "at": "t"}}}))
+        self.ais("run")
+        self.assertEqual(list(self.state()["sessions"]), [str(self.transcript)])
 
     def test_run_does_not_record_preexisting_transcript(self):
         old = self.transcript.parent / (OLD + ".jsonl")

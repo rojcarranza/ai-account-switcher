@@ -152,6 +152,16 @@ class SwitchTest(SwitchCase):
         self.assertEqual(code, 5)
         self.assertEqual(self.log_lines()[0]["result"], "exit 5")
 
+    def test_switch_drops_entries_for_missing_transcripts(self):
+        # FR-5.6: the last-used update also drops records whose transcript is gone
+        gone = str(self.home / "gone.jsonl")
+        (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": "/p", "sessions": {
+            str(self.transcript): {"account": "work", "at": "t"}, gone: {"account": "work", "at": "t"}}}))
+        code, _, err = self.ais("switch", "work")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(list(self.state()["sessions"]), [str(self.transcript)])
+        self.assertEqual(self.state()["menu_plugin"], "/p")
+
     def test_switch_unknown_last_used_assumes_default_account(self):
         # a session started with plain `claude` has no record: it ran on the default account
         self.write_config(acks={"personal->work": "2026-10-01"})
