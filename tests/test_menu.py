@@ -163,6 +163,11 @@ class RenderTest(SwitchCase):
         rc, _, warn, _ = procs.run(["true"], 5)
         self.assertEqual((rc, warn), (None, "cannot run true: stopped"))
 
+    def test_privacy_count_covers_the_5_recent_sessions(self):
+        s = status()
+        s["recent"] = [dict(s["recent"][0], open=False) for _ in range(8)]
+        self.assertIn("\nrecent sessions: 5, open: 0\n", menu.render(s, True, AIS))
+
     def test_privacy_mode_counts_warnings_without_text(self):
         s = status(self_check={"ok": False, "messages": ["secret /Users/x", "b"]})
         out = menu.render(s, True, AIS)

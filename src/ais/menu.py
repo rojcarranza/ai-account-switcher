@@ -97,7 +97,8 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
         for a in accounts:
             out.extend(_header(a, labels[a["name"]]))
         out.append("---")
-        out.append("recent sessions: %d, open: %d" % (len(recent), sum(1 for s in recent if s["open"])))
+        shown = recent[:core.RECENT_COUNT]  # FR-4.14 counts the recent sessions, not the menu's wider list
+        out.append("recent sessions: %d, open: %d" % (len(shown), sum(1 for s in shown if s["open"])))
     else:
         by_owner = {a["name"]: [] for a in accounts}  # type: Dict[Optional[str], List[dict]]
         by_owner[None] = []
