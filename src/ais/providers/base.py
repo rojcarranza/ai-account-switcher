@@ -80,6 +80,10 @@ class Provider(Protocol):
         """The Desktop data folder of an extra account; None for the default account."""
         ...
 
+    def desktop_records(self, data_dir: Optional[Path], home: Path) -> Dict[str, Tuple[str, int]]:
+        """Session ID -> (title, last activity ms) from that Desktop data folder (None = default); never raises."""
+        ...
+
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         """Command that opens a new Desktop instance; AisError(69) when the app is in none of the roots."""
         ...

@@ -441,7 +441,7 @@ def _iso_utc(ts: float) -> Optional[str]:
 
 
 def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[str]] = None,
-                  recent_count: int = RECENT_COUNT) -> dict:
+                  recent_count: int = RECENT_COUNT, desktop: bool = False) -> dict:
     """FR-4.6 dict (plus credential source and error); unreadable or unwritable state becomes a self-check message.
 
     Process-check warnings go to `open_warnings` when given (the menu treats them as a failure), else to stderr.
@@ -469,13 +469,29 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
     def is_open(s: Session) -> bool:
         return provider.open_session_pid(s, found) is not None
 
+    # FR-4.19: session ID -> (account, title, lastActivityAt) of the newest Desktop record across accounts
+    desk = {}  # type: Dict[str, Tuple[str, str, int]]
+    if desktop:
+        for acc in ctx.config.accounts.values():
+            p = ctx.provider_for(acc)
+            for sid, (title, at) in p.desktop_records(p.desktop_data_dir(acc, ctx.store.home), ctx.store.home).items():
+                if sid not in desk or at > desk[sid][2]:
+                    desk[sid] = (acc.name, title, at)
+
+    def owner(s: Session) -> Optional[str]:
+        return _last_used(ctx, s, sessions) or (desk[s.id][0] if s.id in desk else None)
+
+    def title_of(s: Session) -> str:
+        t = desk[s.id][1] if s.id in desk else ""
+        return t if t.strip() else s.title
+
     messages = list(dict.fromkeys(provider.self_check() + extra))  # unique, first-seen order
     return {
         "accounts": accounts,
         "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest, sessions),
                                                 "open": is_open(newest)},
-        "recent": [{"id": s.id, "folder": str(s.folder), "title": s.title,
-                    "last_used": _last_used(ctx, s, sessions), "open": is_open(s),
+        "recent": [{"id": s.id, "folder": str(s.folder), "title": title_of(s),
+                    "last_used": owner(s), "open": is_open(s),
                     "modified": _iso_utc(s.modified)} for s in recent],
         "self_check": {"ok": not messages, "messages": messages},
     }
@@ -567,7 +583,10 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
             except AisError as e:
                 # drop _check_cred_dir's config.json prefix: no config exists yet
                 raise AisError(EXIT_USAGE, "account %s: %s" % (name, e.message.partition(": account %s: " % name)[2]))
-        picked.append(Account(name, label, DEFAULT_PROVIDER, cred))
+        old = existing.get("accounts")
+        old = old.get(name) if isinstance(old, dict) else None
+        desk = old.get("desktop_data_dir") if extra and isinstance(old, dict) else None  # kept for the same extra
+        picked.append(Account(name, label, DEFAULT_PROVIDER, cred, desk if isinstance(desk, str) else None))
 
     new_dirs = [] if ctx.store.dir.exists() else _missing_dirs(ctx.store.dir)
     creates = ["%s/" % d for d in new_dirs]
@@ -580,7 +599,8 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     for c in creates:
         print("  " + c)
     config = {"version": 1, "default": picked[0].name,
-              "accounts": {a.name: {"label": a.label, "provider": a.provider, "credDir": a.cred_dir}
+              "accounts": {a.name: dict({"label": a.label, "provider": a.provider, "credDir": a.cred_dir},
+                                        **({"desktop_data_dir": a.desktop_data_dir} if a.desktop_data_dir else {}))
                            for a in picked},
               "cross_account_ack": existing.get("cross_account_ack", {}),
               "menu_privacy": existing.get("menu_privacy", False)}

@@ -172,7 +172,7 @@ def cmd_menu_render(make_ctx: Callable[[], core.Context], ais_path: str, started
             box["store"] = ctx.store
             box["hide"] = ctx.config.menu_privacy
             warnings = []  # type: List[str]
-            st = core.gather_status(ctx, True, warnings, core.MENU_RECENT)
+            st = core.gather_status(ctx, True, warnings, core.MENU_RECENT, desktop=True)
             if warnings:  # an unknown open state would offer Resume for an open session
                 raise RuntimeError(warnings[0])
             box["out"] = render(st, ctx.config.menu_privacy, ais_path)

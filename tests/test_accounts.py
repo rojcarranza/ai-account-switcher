@@ -154,3 +154,54 @@ class AccountsTest(TempHomeCase):
                 if label in CRED_DIR_CASES:
                     self.assertIn("config.json", cm.exception.message)
                 self.assertIn(rule, cm.exception.message)
+
+    def support(self):
+        d = self.home / "Library" / "Application Support"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_desktop_data_dir_kept_exactly_and_need_not_exist(self):
+        path = str(self.support() / "Claude-Work")
+        c = self.load(self.work(desktop_data_dir=path))
+        self.assertEqual(c.accounts["work"].desktop_data_dir, path)
+        self.assertIsNone(c.accounts["personal"].desktop_data_dir)
+        self.assertIsNone(self.load(self.cfg()).accounts["work"].desktop_data_dir)
+        (self.support() / "Claude-Work").mkdir()
+        self.assertEqual(self.load(self.work(desktop_data_dir=path)).accounts["work"].desktop_data_dir, path)
+
+    def assert_bad_desktop_dir(self, c, account="work"):
+        with self.assertRaises(AisError) as cm:
+            self.load(c)
+        self.assertEqual(cm.exception.code, 78)
+        self.assertIn(account, cm.exception.message)
+        self.assertIn("desktop_data_dir", cm.exception.message)
+
+    def test_desktop_data_dir_on_default_account_exits_78(self):
+        c = self.cfg()
+        c["accounts"]["personal"]["desktop_data_dir"] = str(self.support() / "Claude-Work")
+        self.assert_bad_desktop_dir(c, "personal")
+
+    def test_bad_desktop_data_dir_exits_78(self):
+        sup = self.support()
+        (sup / "Claude-File").write_text("x")
+        outside = self.home / "elsewhere"
+        outside.mkdir()
+        (sup / "Claude-Link").symlink_to(outside)
+        cases = {"relative": "Library/Application Support/Claude-Work", "tilde": "~/Library/Application Support/X",
+                 "outside": str(self.home / "Claude-Work"), "support itself": str(sup),
+                 "nested": str(sup / "a" / "b"), "symlink out": str(sup / "Claude-Link"),
+                 "regular file": str(sup / "Claude-File"), "not a string": 5,
+                 "trailing slash": str(sup / "Claude-Work") + "/", "dot": str(sup) + "/./Claude-Work",
+                 "double slash": str(sup) + "//Claude-Work"}
+        for label, value in cases.items():
+            with self.subTest(label):
+                self.assert_bad_desktop_dir(self.work(desktop_data_dir=value))
+
+    def test_two_accounts_sharing_a_desktop_data_dir_exit_78(self):
+        path = str(self.support() / "Claude-Work")
+        c = self.cfg()
+        c["accounts"]["work"]["desktop_data_dir"] = path
+        c["accounts"]["spare"] = {"label": "Spare", "provider": "claude", "credDir": str(self.home / ".claude-spare"),
+                                  "desktop_data_dir": path}
+        self.assert_bad_desktop_dir(c, "spare")
+

@@ -343,6 +343,16 @@ class RenderProcessTest(SwitchCase):
         for i in range(5000):
             (d / ("00000000-0000-4000-8000-%012d.jsonl" % i)).write_text(
                 '{"type": "user", "message": {"content": "t%d"}, "cwd": "%s"}\n' % (i, self.proj))
+        acct = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"  # NFR-PERF: 1,000 Desktop records for each of two accounts
+        for folder in ("Claude", "Claude-ais-work"):
+            data = self.home / "Library" / "Application Support" / folder
+            sub = data / "claude-code-sessions" / acct / "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+            sub.mkdir(parents=True)
+            (data / "config.json").write_text(json.dumps({"lastKnownAccountUuid": acct}))
+            for i in range(1000):
+                sid = "00000000-0000-4000-8000-%012d" % i
+                (sub / ("local_%s.json" % sid)).write_text(json.dumps(
+                    {"cliSessionId": sid, "title": "D%d" % i, "lastActivityAt": 1792000000000 + i, "isArchived": False}))
         self.env(FAKE_PGREP_OUT="")
         code, _, err, _ = self.render(timeout=60)  # warms cache.json
         self.assertEqual(code, 0, err)
