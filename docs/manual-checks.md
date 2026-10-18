@@ -64,9 +64,9 @@ Result: ____ (switch p95 ____ s, render p95 ____ s, date ____)
 
 ## M5 NFD folder and process detection (NFR-COST, until macOS CI runs)
 
-1. Make a folder with a decomposed accent: `mkdir "$HOME/cafe$(printf 'e\xcc\x81')"`, `cd` into it, `ais run personal`, ask anything, `/exit`.
+1. Make a folder with a decomposed accent: `mkdir "$HOME/caf$(printf 'e\xcc\x81')"`, `cd` into it, `ais run personal`, ask anything, `/exit`.
 2. `ais status` in that folder.
-3. Run `claude` in that folder again, and in a second terminal in the same folder run `ais switch work`.
+3. Run `claude` in that folder again, and in a second terminal in the same folder run `ais switch work` (answer `y` if the one-time transcript prompt appears).
 
 Expected: step 2 shows the session; step 3 refuses with exit 75 and `Claude is still running in <folder> (PID <n>)`, proving `pgrep`/`lsof` parsing works.
 

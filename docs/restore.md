@@ -15,14 +15,12 @@ Before every resume, `ais switch` copies the session's files to `~/.config/ais/s
    ls ~/.claude/projects/*/<session-id>.jsonl
    ```
 
-4. Keep the damaged copy aside, then copy the snapshot back into that folder (`<project-folder>` is the folder from step 3):
+4. Keep the damaged copy aside (and, if the session has a `<session-id>/` folder, move it aside the same way first, so the copy does not mix old and new subagent files), then copy the snapshot back into that folder (`<project-folder>` is the folder from step 3):
 
    ```bash
    mv ~/.claude/projects/<project-folder>/<session-id>.jsonl ~/<session-id>.jsonl.damaged
    cp -R ~/.config/ais/snapshots/<snapshot>/ ~/.claude/projects/<project-folder>/
    ```
-
-   If the session has a `<session-id>/` folder, move it aside the same way first, so the copy does not mix old and new subagent files.
 
 5. Resume it: `ais switch --session <session-id> <account>`.
 
