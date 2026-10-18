@@ -107,7 +107,7 @@ class RenderTest(SwitchCase):
     def test_privacy_mode_hides_folders_and_titles(self):
         out = menu.render(status(), True, AIS, NOW)
         self.assertEqual(out.split("\n")[2:6], ["Personal | sfimage=person.crop.circle", "Work · credential unknown | sfimage=person.crop.circle", "---",
-                                                "recent sessions: 2, open: 1"])
+                                                "recent sessions: 1, open: 0"])  # the unknown-owner session is not counted
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
         self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS, out)
