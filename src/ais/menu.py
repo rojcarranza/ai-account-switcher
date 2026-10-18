@@ -98,13 +98,35 @@ def _bar_png(value: Optional[float]) -> bytes:
     v = _clamp(value)
     filled = 0 if v is None else int(round(BAR_W * v / 100))
     colour = BAR_RED if v == 100 else BAR_ORANGE if v is not None and v >= 80 else BAR_BLUE
-    row = b"\0" + bytes(colour) * filled + bytes(BAR_TRACK) * (BAR_W - filled)  # filter byte 0, then pixels
+    r = BAR_H / 2.0
+    fill_end = max(r, filled - r)  # the fill's round end; a short fill is the left cap cut at `filled`
+
+    def inside(x: float, y: float, x0: float, x1: float) -> bool:  # within r of the segment (x0..x1, r)
+        dx = x0 - x if x < x0 else x - x1 if x > x1 else 0.0
+        return dx * dx + (y - r) * (y - r) <= r * r
+
+    raw = b""
+    for py in range(BAR_H):
+        row = b"\0"  # filter byte 0, then pixels
+        for px in range(BAR_W):
+            ct = cf = 0  # track and fill coverage out of 16 samples, for anti-aliased round ends
+            for sy in range(4):
+                for sx in range(4):
+                    x, y = px + (sx + 0.5) / 4, py + (sy + 0.5) / 4
+                    if inside(x, y, r, BAR_W - r):
+                        ct += 1
+                        cf += x < filled and inside(x, y, r, fill_end)
+            a_f, a_t = 255 * cf, BAR_TRACK[3] * (ct - cf)
+            a = a_f + a_t
+            row += bytes([int(round((colour[i] * a_f + BAR_TRACK[i] * a_t) / a)) if a else 0 for i in range(3)]
+                         + [int(round(a / 16.0))])
+        raw += row
 
     def chunk(kind: bytes, body: bytes) -> bytes:
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
 
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", BAR_W, BAR_H, 8, 6, 0, 0, 0))
-            + chunk(b"pHYs", struct.pack(">IIB", 5669, 5669, 1)) + chunk(b"IDAT", zlib.compress(row * BAR_H))
+            + chunk(b"pHYs", struct.pack(">IIB", 5669, 5669, 1)) + chunk(b"IDAT", zlib.compress(raw))
             + chunk(b"IEND", b""))
 
 
@@ -118,8 +140,9 @@ def _usage(usage: Optional[dict], now: float) -> List[str]:
     out = []
     for name, key in (("5h", "fh"), ("week", "sd")):
         v = _clamp(usage[key])
-        out.append("%s  %s | image=%s" % (name, "?" if v is None else "%d%%" % v,
-                                          base64.b64encode(_bar_png(v)).decode("ascii")))
+        # SwiftBar ignores the PNG's dpi and shrinks the image unless width and height are given
+        out.append("%s  %s | image=%s width=120 height=8" % (name, "?" if v is None else "%d%%" % v,
+                                                             base64.b64encode(_bar_png(v)).decode("ascii")))
     try:
         age = _ago(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t)), now)
     except (OverflowError, ValueError, OSError):  # a time far out of range in the file
@@ -142,8 +165,7 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     # a leading "-" would make the line a submenu or separator
     labels = {a["name"]: sanitize(a["label"]).lstrip("-") or _name(a["name"]) for a in accounts}
     recent = status["recent"]
-    first = recent[0]["last_used"] if recent else None
-    out = [labels.get(first, "ais") if first else "ais", "---"]
+    out = ["| sfimage=gauge.medium", "---"]  # FR-4.8: an icon only in the menu bar
     if privacy:
         for a in accounts:
             out.extend(_header(a, labels[a["name"]], now))

@@ -40,7 +40,7 @@ class RenderTest(SwitchCase):
     def test_render_from_fixed_status(self):
         out = menu.render(status(), False, AIS, NOW).split("\n")
         self.assertEqual(out, [
-            "Personal",
+            "| sfimage=gauge.medium",
             "---",
             "✓ Personal | sfimage=person.crop.circle",
             "Sessions (1) | sfimage=list.bullet",
@@ -61,7 +61,7 @@ class RenderTest(SwitchCase):
         ])
 
     def test_render_bar_is_ais_without_sessions(self):
-        self.assertEqual(menu.render(status(recent=[]), False, AIS).split("\n")[0], "ais")
+        self.assertEqual(menu.render(status(recent=[]), False, AIS).split("\n")[0], "| sfimage=gauge.medium")
 
     def test_unknown_last_used_offers_every_account(self):
         s = status()
@@ -118,7 +118,6 @@ class RenderTest(SwitchCase):
         s["accounts"][0]["label"] = "--x"
         s["accounts"][1]["label"] = "---"
         out = menu.render(s, False, AIS, NOW).split("\n")
-        self.assertEqual(out[0], "x")
         self.assertEqual(out[2], "✓ x | sfimage=person.crop.circle")
         self.assertIn("work · credential unknown | sfimage=person.crop.circle", out)
         self.assertTrue(any(ln.startswith("----Resume in work | bash=") for ln in out))
@@ -256,7 +255,7 @@ class UsageRenderTest(SwitchCase):
     """FR-4.20: drawn usage bars under each account header."""
 
     def bar(self, line):
-        m = re.fullmatch(r"(.*) \| image=([A-Za-z0-9+/=]+)", line)
+        m = re.fullmatch(r"(.*) \| image=([A-Za-z0-9+/=]+) width=120 height=8", line)  # SwiftBar ignores the dpi
         self.assertIsNotNone(m, line)
         return m.group(1), png_pixels(base64.b64decode(m.group(2)))
 
@@ -269,6 +268,20 @@ class UsageRenderTest(SwitchCase):
         self.assertEqual(mid[165], menu.BAR_BLUE)  # round(240 * 0.69) = 166 filled
         self.assertEqual(mid[166], menu.BAR_TRACK)
         self.assertEqual(mid[239], menu.BAR_TRACK)
+
+    def test_bar_is_a_rounded_capsule(self):
+        _, _, _, rows = png_pixels(menu._bar_png(50))
+        self.assertEqual(rows[0][0][3], 0)  # corners outside the round ends are transparent
+        self.assertEqual(rows[15][239][3], 0)
+        self.assertEqual(rows[0][120], menu.BAR_TRACK)  # straight edge in the middle
+        self.assertEqual(rows[8][0], menu.BAR_BLUE)
+        self.assertNotIn(rows[0][114], (menu.BAR_BLUE, menu.BAR_TRACK))  # fill's round end blends into the track
+        self.assertEqual(rows[0][119], menu.BAR_TRACK)
+        self.assertEqual(rows[8][119], menu.BAR_BLUE)
+        self.assertEqual(rows[8][120], menu.BAR_TRACK)
+        small = png_pixels(menu._bar_png(1))[3]  # 2 px of fill: the left cap, cut at the fill's width
+        self.assertEqual(small[8][1], menu.BAR_BLUE)
+        self.assertEqual(small[8][2], menu.BAR_TRACK)
 
     def test_bar_colour_by_value(self):
         for value, colour, filled in ((79, menu.BAR_BLUE, 190), (80, menu.BAR_ORANGE, 192),
@@ -334,6 +347,11 @@ class IconTest(SwitchCase):
         lines = menu.render(status(), True, AIS, NOW).split("\n")
         self.assertIn("✓ Personal | sfimage=person.crop.circle", lines)
 
+    def test_menu_bar_title_is_an_icon_only(self):
+        for st, privacy in ((status(), False), (status(), True), (status(recent=[]), False)):
+            with self.subTest(privacy=privacy, recent=len(st["recent"])):
+                self.assertEqual(menu.render(st, privacy, AIS, NOW).split("\n")[:2], ["| sfimage=gauge.medium", "---"])
+
     def test_untrusted_text_never_sets_an_icon(self):
         s = status()
         s["accounts"][0]["label"] = "x sfimage=trash"
@@ -380,7 +398,7 @@ class RenderProcessTest(SwitchCase):
         code, out, err, _ = self.render()
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
-        self.assertEqual(lines[:2], ["Work", "---"])
+        self.assertEqual(lines[:2], ["| sfimage=gauge.medium", "---"])
         self.assertIn("✓ Personal | sfimage=person.crop.circle", lines)
         self.assertTrue(any(ln.startswith("--Main task · ") for ln in lines), out)
         self.assertIn("----~/proj", lines)
@@ -406,7 +424,7 @@ class RenderProcessTest(SwitchCase):
         code, out, _, took = self.render(timeout=10)
         self.assertEqual(code, 0)
         self.assertLess(took, 8)
-        self.assertTrue(out.startswith("Personal\n") or out.startswith("ais\n") or out.startswith("Work\n"), out)
+        self.assertTrue(out.startswith("| sfimage=gauge.medium\n"), out)
 
     def test_render_with_hung_lsof_finishes_in_5s(self):
         child = self.home / "lsof.child"
