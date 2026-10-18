@@ -20,7 +20,7 @@ from ais.providers.base import Session
 PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
 SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
-TESTED_VERSIONS = ("2.1.301", "2.1.301")  # min, max inclusive (spike (f))
+TESTED_VERSIONS = ("2.1.301", "2.1.302")  # min, max inclusive (spike (f))
 VERSION_TIMEOUT = 10
 AUTH_TIMEOUT = 10
 KEYCHAIN_TIMEOUT = 5
