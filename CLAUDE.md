@@ -46,12 +46,13 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   runs 3.12.
 
 ## graphify
+- Skip this section if the `graphify` command is not installed.
 - Before answering a question about the codebase or reading files to find
-  something, check `graphify-out/GRAPH_REPORT.md` and use
+  something, run `graphify update .` (AST only, no LLM) so the graph matches
+  the checkout, then check `graphify-out/GRAPH_REPORT.md` and use
   `graphify query "<question>"` if `graphify-out/graph.json` exists.
 - No graph yet: build it with `/graphify .` first.
-- After changing code, run `graphify update .` to refresh the graph (AST only,
-  no LLM). After changing docs, run `/graphify . --update`.
+- After changing docs, run `/graphify . --update`.
 - `graphify-out/` is generated output; never commit it.
 
 ## When compacting
