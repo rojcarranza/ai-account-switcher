@@ -3,8 +3,10 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
+import sys
 from pathlib import Path
 
 from unittest import mock
@@ -49,7 +51,8 @@ class MenuInstallCase(SwitchCase):
 
     def body(self):
         claude_dir = os.path.dirname(shutil.which("claude"))
-        return '#!/bin/sh\nexport PATH="%s/.local/bin:%s:/usr/bin:/bin"\nexec ais menu render\n' % (self.home, claude_dir)
+        return ('#!/bin/sh\nexport PATH="%s/.local/bin:%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n'
+                % (self.home, claude_dir))
 
 
 class MenuInstallTest(MenuInstallCase):
@@ -174,6 +177,27 @@ class MenuInstallTest(MenuInstallCase):
             code, _, err = self.install()
         self.assertEqual(code, 73)
         self.assertEqual(list(self.plugins.iterdir()), [])
+
+    def test_plugin_path_finds_process_tools(self):
+        """#42: SwiftBar runs the plugin with only its own PATH; lsof is /usr/sbin/lsof on macOS."""
+        self.assertEqual(self.install()[0], 0)
+        m = re.search(r'export PATH="([^"]*)"', self.target.read_text())
+        self.assertIsNotNone(m, "no export PATH line")
+        path = m.group(1)
+        for d in ("/usr/sbin", "/usr/bin", "/bin"):  # macOS homes of lsof; pgrep, security, defaults, open; ps
+            self.assertIn(d, path.split(":"))
+        if sys.platform == "darwin":
+            for tool in ("lsof", "pgrep", "ps", "security", "defaults", "open"):
+                self.assertIsNotNone(shutil.which(tool, path=path), tool)
+
+    def test_plugin_path_lists_local_bin_once_when_claude_lives_there(self):
+        local = self.home / ".local" / "bin"
+        local.mkdir(parents=True)
+        shutil.copy(str(TESTS / "fakes" / "claude"), str(local / "claude"))
+        shutil.copy(str(TESTS / "fakes" / "defaults"), str(local / "defaults"))
+        self.env(PATH=str(local))
+        self.assertEqual(self.install()[0], 0)
+        self.assertIn('export PATH="%s:/usr/bin:/bin:/usr/sbin:/sbin"' % local, self.target.read_text())
 
     def test_install_dry_run_writes_nothing_asks_nothing(self):
         code, out, err = self.install(dry_run=True)
