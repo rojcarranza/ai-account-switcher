@@ -823,6 +823,8 @@ EXIT_SWIFTBAR = 71
 EXIT_MISSING_TOOL = 69
 PLUGIN_NAME = "ais.1m.sh"
 SWIFTBAR_DOMAIN = "com.ameba.SwiftBar"
+# SwiftBar's own menu items the plugin header hides (FR-4.7)
+SWIFTBAR_HIDE = ("hideLastUpdated", "hideRunInTerminal", "hideDisablePlugin", "hideAbout", "hideSwiftBar")
 _PATH_UNSAFE = re.compile(r'["$`\\:\x00-\x1f\x7f]')  # would break the quoting or the PATH list in the plugin
 
 
@@ -864,7 +866,8 @@ def cmd_menu_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     local_bin = "%s/.local/bin" % home
     dirs = [local_bin] + ([claude_dir] if claude_dir != local_bin else [])
     # /usr/sbin: lsof lives there on macOS, and render needs it (#42)
-    body = ('#!/bin/sh\nexport PATH="%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n' % ":".join(dirs))
+    body = ('#!/bin/sh\n' + "".join("# <swiftbar.%s>true</swiftbar.%s>\n" % (k, k) for k in SWIFTBAR_HIDE)
+            + 'export PATH="%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n' % ":".join(dirs))
     print("%s %s%s:\n%s" % ("Would write" if dry_run else "Will write", target, " (replace)" if exists else "", body))
     if not (home / ".local" / "bin" / "ais").is_file():
         print("ais: warning: %s is missing; the menu finds no ais until `make install`"

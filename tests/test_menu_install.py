@@ -51,7 +51,14 @@ class MenuInstallCase(SwitchCase):
 
     def body(self):
         claude_dir = os.path.dirname(shutil.which("claude"))
-        return ('#!/bin/sh\nexport PATH="%s/.local/bin:%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n'
+        return ('#!/bin/sh\n'
+                # SwiftBar reads these from the plugin file and hides its own menu items
+                '# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>\n'
+                '# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>\n'
+                '# <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>\n'
+                '# <swiftbar.hideAbout>true</swiftbar.hideAbout>\n'
+                '# <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>\n'
+                'export PATH="%s/.local/bin:%s:/usr/bin:/bin:/usr/sbin:/sbin"\nexec ais menu render\n'
                 % (self.home, claude_dir))
 
 

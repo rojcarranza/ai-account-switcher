@@ -10,7 +10,7 @@ import time
 import unicodedata
 import uuid
 import zlib
-from typing import Any, Callable, Dict, List, NoReturn, Optional
+from typing import Any, Callable, Dict, List, NoReturn, Optional, Tuple
 
 from ais import core, procs
 from ais.accounts import NAME_RE
@@ -130,13 +130,13 @@ def _bar_png(value: Optional[float]) -> bytes:
             + chunk(b"IEND", b""))
 
 
-def _usage(usage: Optional[dict], now: float) -> List[str]:
-    """FR-4.20: two bar items and the sample's age, or one line when the newest sample is over 24 h old."""
+def _usage(usage: Optional[dict], now: float) -> Tuple[Optional[str], List[str]]:
+    """FR-4.20: the sample's age and two bar items, or one line when the newest sample is over 24 h old."""
     if not usage:
-        return []
+        return None, []
     t = usage["t"] / 1000.0
     if now - t > USAGE_MAX_AGE:
-        return ["usage: no sample in the last 24 h"]
+        return None, ["usage: no sample in the last 24 h"]
     out = []
     for name, key in (("5h", "fh"), ("week", "sd")):
         v = _clamp(usage[key])
@@ -147,14 +147,16 @@ def _usage(usage: Optional[dict], now: float) -> List[str]:
         age = _ago(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t)), now)
     except (OverflowError, ValueError, OSError):  # a time far out of range in the file
         age = None
-    return out + (["updated " + age] if age else [])
+    return age, out
 
 
 def _header(account: dict, label: str, now: float) -> List[str]:
     cred = account["credential_present"]
-    head = "✓ " + label if cred == "yes" else "%s · credential %s" % (label, sanitize(cred))
-    return ([head + " | sfimage=person.crop.circle"]  # FR-4.22: icon names are fixed strings
-            + _usage(account.get("usage"), now))
+    head = label if cred == "yes" else "%s · credential %s" % (label, sanitize(cred))
+    age, bars = _usage(account.get("usage"), now)
+    if age:
+        head += " · updated " + age
+    return [head + " | sfimage=person.crop.circle"] + bars  # FR-4.22: icon names are fixed strings
 
 
 def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = None) -> str:
@@ -173,10 +175,10 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
         shown = recent[:core.RECENT_COUNT]  # FR-4.14 counts the recent sessions, not the menu's wider list
         out.append("recent sessions: %d, open: %d" % (len(shown), sum(1 for s in shown if s["open"])))
     else:
-        by_owner = {a["name"]: [] for a in accounts}  # type: Dict[Optional[str], List[dict]]
-        by_owner[None] = []
-        for s in recent:  # newest first; an unconfigured owner is as unknown as none
-            by_owner[s["last_used"] if s["last_used"] in by_owner else None].append(s)
+        by_owner = {a["name"]: [] for a in accounts}  # type: Dict[str, List[dict]]
+        for s in recent:  # newest first; a session with no configured owner is not shown
+            if s["last_used"] in by_owner:
+                by_owner[s["last_used"]].append(s)
         groups = []  # type: List[List[str]]
         for a in accounts:
             g = _header(a, labels[a["name"]], now)
@@ -185,11 +187,6 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
                 g.append("Sessions (%d) | sfimage=list.bullet" % len(mine))
                 for s in mine:
                     g.extend(_session(s, a["name"], accounts, labels, bash, now))
-            groups.append(g)
-        if by_owner[None]:
-            g = ["Other sessions (account unknown) | sfimage=list.bullet"]
-            for s in by_owner[None][:10]:
-                g.extend(_session(s, None, accounts, labels, bash, now))
             groups.append(g)
         for i, g in enumerate(groups):
             out.extend(g)
@@ -205,6 +202,9 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     out.append("---")
     for a in accounts:
         out.append("Open %s Desktop | %s param1=desktop param2=%s terminal=false sfimage=desktopcomputer"
+                   % (labels[a["name"]], bash, _name(a["name"])))
+    for a in accounts:
+        out.append("Open %s Terminal | %s param1=run param2=%s terminal=true sfimage=terminal"
                    % (labels[a["name"]], bash, _name(a["name"])))
     return "\n".join(out)
 

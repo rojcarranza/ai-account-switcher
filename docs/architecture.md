@@ -93,8 +93,8 @@ No network API. The interfaces are:
   `desktop_launch_command`, `desktop_running_pid` (see FR-5.1, FR-6). Registered in a static table
   (FR-5.2).
 - **`ais status --json`:** schema in FR-4.6.
-- **SwiftBar plugin:** `ais.1m.sh` sets `PATH` and runs
-  `exec ais menu render`; all logic and sanitizing are in `menu.py`.
+- **SwiftBar plugin:** `ais.1m.sh` hides SwiftBar's own menu items, sets
+  `PATH` and runs `exec ais menu render`; all logic and sanitizing are in `menu.py`.
 
 ## Cross-cutting: auth, config, observability, errors
 
