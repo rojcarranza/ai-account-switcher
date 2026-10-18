@@ -45,5 +45,14 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
 - macOS ships `/usr/bin/python3` 3.9 with the Command Line Tools; CI also
   runs 3.12.
 
+## graphify
+- Before answering a question about the codebase or reading files to find
+  something, check `graphify-out/GRAPH_REPORT.md` and use
+  `graphify query "<question>"` if `graphify-out/graph.json` exists.
+- No graph yet: build it with `/graphify .` first.
+- After changing code, run `graphify update .` to refresh the graph (AST only,
+  no LLM). After changing docs, run `/graphify . --update`.
+- `graphify-out/` is generated output; never commit it.
+
 ## When compacting
 - Keep: current task, modified files, test commands, open G-1 findings.
