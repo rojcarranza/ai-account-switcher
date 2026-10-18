@@ -446,15 +446,19 @@ class ClaudeProvider:
         doc = _load_desktop_json(base / "plan-usage-history.json", root, DESKTOP_USAGE_MAX_BYTES)
         if not isinstance(doc, dict) or doc.get("version") != 2 or not isinstance(doc.get("samples"), list):
             return None
-        best = None  # type: Optional[Dict[str, Any]]
+        best = real = None  # type: Optional[Dict[str, Any]]
         for smp in doc["samples"]:
             t = smp.get("t") if isinstance(smp, dict) else None
             u = smp.get("u") if isinstance(smp, dict) else None
             if not isinstance(t, int) or isinstance(t, bool) or abs(t) >= 2 ** 53 or not isinstance(u, dict):
                 continue
+            cur = {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}
             if best is None or t > best["t"]:
-                best = {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}
-        return best
+                best = cur
+            # Desktop can save 0/0 while its own tray shows real usage (#69): prefer the newest other sample
+            if not (cur["fh"] == 0 and cur["sd"] == 0) and (real is None or t > real["t"]):
+                real = cur
+        return real or best
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:

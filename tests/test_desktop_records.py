@@ -193,6 +193,16 @@ class UsageTest(DesktopFixture):
         usage_file(d, [sample(100, 1, 2), sample(300, 69, 68), sample(200, 5, 6)])
         self.assertEqual(self.usage(d), {"t": 300, "fh": 69, "sd": 68})
 
+    def test_all_zero_sample_skipped_for_newest_real_one(self):
+        d = self.desktop()
+        usage_file(d, [sample(100, 1, 2), sample(200, 77, 69), sample(300, 0, 0), sample(400, 0, 0.0)])
+        self.assertEqual(self.usage(d), {"t": 200, "fh": 77, "sd": 69})
+
+    def test_only_all_zero_samples_shows_newest(self):
+        d = self.desktop()
+        usage_file(d, [sample(100, 0, 0), sample(300, 0, 0), sample(200, 0, 0)])
+        self.assertEqual(self.usage(d), {"t": 300, "fh": 0, "sd": 0})
+
     def test_none_means_default_folder(self):
         usage_file(self.desktop(), [sample(100, 0, 73)])
         self.assertEqual(self.usage(None), {"t": 100, "fh": 0, "sd": 73})
