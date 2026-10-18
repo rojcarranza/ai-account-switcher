@@ -125,7 +125,8 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     if privacy:
         if msgs:
             out.append("warnings: %d" % len(msgs))
-    else:
+    elif msgs:
+        out.append("---")
         out.extend("Warning: " + sanitize(m) for m in msgs)
     out.append("---")
     for a in accounts:

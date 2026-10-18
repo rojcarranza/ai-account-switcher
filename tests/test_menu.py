@@ -191,6 +191,12 @@ class RenderTest(SwitchCase):
         out = menu.render(s, False, AIS).split("\n")
         self.assertIn("Warning: Claude Code 9  bad", out)
 
+    def test_warnings_are_separated_from_the_groups(self):
+        s = status(self_check={"ok": False, "messages": ["w"]})
+        out = menu.render(s, False, AIS, NOW).split("\n")
+        i = out.index("Warning: w")
+        self.assertEqual((out[i - 1], out[i + 1]), ("---", "---"))
+
     def test_sanitize(self):
         self.assertEqual(menu.sanitize("a|b\nc\r\x1b[0m‮d​"), "abc[0md")
         # input unchanged by copy semantic
