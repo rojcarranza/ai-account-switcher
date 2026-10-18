@@ -240,6 +240,12 @@ class ProvidersTest(TempHomeCase):
             self.assertEqual(c.accounts["solo"].provider, "fake")
         self.assertEqual(list(providers.REGISTRY), ["claude"])
 
+    def test_version_below_range_warns(self):
+        self.addCleanup(os.environ.pop, "FAKE_CLAUDE_VERSION", None)
+        os.environ["FAKE_CLAUDE_VERSION"] = "2.1.300"
+        self.assertEqual(self.p.self_check(),
+                         ["Claude Code 2.1.300 is outside the tested range 2.1.301-2.1.302"])
+
     def test_version_outside_range_warns(self):
         self.addCleanup(os.environ.pop, "FAKE_CLAUDE_VERSION", None)
         self.assertEqual(self.p.self_check(), [])
