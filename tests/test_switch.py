@@ -186,13 +186,21 @@ class SwitchTest(SwitchCase):
                 self.assertEqual(code, 65)
                 self.assertIn("will be sent under Work", err)
                 self.assertIsNone(self.argv())
-                self.assertNotIn("assuming it last ran on", err)
+                self.assertIn("assuming it last ran on Personal", err)
 
     def test_switch_named_default_account_unknown_last_used_no_ack(self):
         code, _, err = self.ais("switch", "personal", stdin="")  # FR-3.2: same account, no prompt
         self.assertEqual(code, 0, err)
         self.assertEqual(self.slot(), "slot=<unset>")
         self.assertNotIn("will be sent under", err)
+        self.assertNotIn("assuming it last ran on", err)
+
+    def test_switch_named_account_unknown_last_used_three_accounts_asks_ack(self):
+        self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
+                                                    "credDir": str(self.home / ".claude-extra")}})
+        code, _, err = self.ais("switch", "extra", stdin="")
+        self.assertEqual(code, 65)
+        self.assertIn("used under Personal) will be sent under Extra", err)
 
     def test_switch_unknown_last_used_three_accounts_64_without_note(self):
         self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
