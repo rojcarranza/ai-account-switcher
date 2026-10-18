@@ -1,4 +1,4 @@
-"""SwiftBar menu output (FR-4.8 to FR-4.17, FR-6.5). Provider-agnostic: works on the gather_status dict."""
+"""SwiftBar menu output (FR-4.8 to FR-4.23, FR-6.5). Provider-agnostic: works on the gather_status dict."""
 import base64
 import calendar
 import os
@@ -209,7 +209,7 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     return "\n".join(out)
 
 
-def _session(s: dict, owner: Optional[str], accounts: List[dict], labels: Dict[str, str], bash: str,
+def _session(s: dict, owner: str, accounts: List[dict], labels: Dict[str, str], bash: str,
              now: float) -> List[str]:
     """FR-4.15: one session item and its submenu (folder, then Resume or Quit items)."""
     sid = _uuid(s["id"])
