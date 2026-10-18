@@ -58,6 +58,10 @@ RISKY_FLAGS = ("--settings", "--bare")
 DESKTOP_APP = "Claude.app"
 DESKTOP_SUPPORT = ("Library", "Application Support")
 DESKTOP_PREFIX = "Claude-ais-"
+DESKTOP_DEFAULT = "Claude"  # the default Desktop data folder, under DESKTOP_SUPPORT
+DESKTOP_MAX_FILES = 1000
+DESKTOP_MAX_BYTES = 1024 * 1024
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 DESKTOP_PS_TIMEOUT = 5
 # the executable is the first word (a path may hold spaces, never " /"); never "Claude Helper (…)"
 _DESKTOP_MAIN = re.compile(r"/(?:[^ ]| (?!/))*\.app/Contents/MacOS/Claude(?= -|$)")
@@ -363,6 +367,44 @@ class ClaudeProvider:
         if account.is_default:
             return None
         return home.joinpath(*DESKTOP_SUPPORT) / (DESKTOP_PREFIX + account.name)
+
+    def desktop_records(self, data_dir: Optional[Path], home: Path) -> Dict[str, Tuple[str, int]]:
+        """FR-4.19: session ID -> (title, lastActivityAt ms) from Desktop's records; every problem is skipped."""
+        base = data_dir if data_dir is not None else home.joinpath(*DESKTOP_SUPPORT) / DESKTOP_DEFAULT
+        out = {}  # type: Dict[str, Tuple[str, int]]
+
+        def load(p: Path) -> Any:
+            try:
+                if p.stat().st_size > DESKTOP_MAX_BYTES:
+                    return None
+                with open(str(p), encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+                return None
+
+        try:
+            cfg = load(base / "config.json")
+            acct = cfg.get("lastKnownAccountUuid") if isinstance(cfg, dict) else None
+            if not isinstance(acct, str) or not _UUID_RE.fullmatch(acct):  # it goes into a path
+                return out
+            root = os.path.realpath(str(base))
+            files = sorted(base.glob("claude-code-sessions/%s/*/local_*.json" % acct))[:DESKTOP_MAX_FILES]
+            for p in files:
+                if not os.path.realpath(str(p)).startswith(root + os.sep):
+                    continue
+                rec = load(p)
+                if not isinstance(rec, dict) or rec.get("isArchived") is True:
+                    continue
+                sid = rec.get("cliSessionId")
+                if not isinstance(sid, str):
+                    continue
+                title, at = rec.get("title"), rec.get("lastActivityAt")
+                at = at if isinstance(at, int) and not isinstance(at, bool) else 0
+                if sid not in out or at > out[sid][1]:
+                    out[sid] = (title if isinstance(title, str) else "", at)
+        except (OSError, ValueError):  # a folder that vanishes or cannot be listed: nothing to show
+            pass
+        return out
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:

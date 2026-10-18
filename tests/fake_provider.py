@@ -36,6 +36,9 @@ class FakeProvider:
     def desktop_data_dir(self, account, home):
         return None if account.is_default else home / "fake-desktop" / account.name
 
+    def desktop_records(self, data_dir, home) -> Dict[str, Tuple[str, int]]:
+        return {}
+
     def desktop_launch_command(self, data_dir, app_roots) -> List[str]:
         return ["fake", "desktop"] + ([] if data_dir is None else [str(data_dir)])
 
