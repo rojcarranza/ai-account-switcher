@@ -63,6 +63,7 @@ DESKTOP_PREFIX = "Claude-ais-"
 DESKTOP_DEFAULT = "Claude"  # the default Desktop data folder, under DESKTOP_SUPPORT
 DESKTOP_MAX_FILES = 1000
 DESKTOP_MAX_BYTES = 1024 * 1024
+DESKTOP_USAGE_MAX_BYTES = 2 * 1024 * 1024  # FR-4.20
 _UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 DESKTOP_PS_TIMEOUT = 5
 # the executable is the first word (a path may hold spaces, never " /"); never "Claude Helper (…)"
@@ -227,6 +228,24 @@ def _same_folder(cwd: str, target_real: str) -> bool:
     return unicodedata.normalize("NFC", cwd) == target_real or _nfc_real(cwd) == target_real
 
 
+def _load_desktop_json(p: Path, root: str, cap: int) -> Any:
+    """A Desktop JSON file under realpath `root`, at most `cap` bytes; None on any problem."""
+    try:
+        if not os.path.realpath(str(p)).startswith(root + os.sep):  # a link pointing out
+            return None
+        st = os.stat(str(p))
+        if not stat.S_ISREG(st.st_mode) or st.st_size > cap:  # a FIFO would block
+            return None
+        with open(str(p), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
+        return None
+
+
+def _percent(v: Any) -> Optional[float]:
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def _desktop_pid(ps_output: str, data_dir: Optional[Path]) -> Optional[int]:
     """PID of the main Desktop process whose --user-data-dir is data_dir (None = no such flag)."""
     for raw in ps_output.splitlines():
@@ -381,16 +400,7 @@ class ClaudeProvider:
         root = os.path.realpath(str(base))
 
         def load(p: Path) -> Any:
-            try:
-                if not os.path.realpath(str(p)).startswith(root + os.sep):  # a link pointing out
-                    return None
-                st = os.stat(str(p))
-                if not stat.S_ISREG(st.st_mode) or st.st_size > DESKTOP_MAX_BYTES:  # a FIFO would block
-                    return None
-                with open(str(p), encoding="utf-8") as f:
-                    return json.load(f)
-            except (OSError, ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
-                return None
+            return _load_desktop_json(p, root, DESKTOP_MAX_BYTES)
 
         try:
             if os.path.dirname(root) != os.path.realpath(str(support)):
@@ -420,6 +430,29 @@ class ClaudeProvider:
         except (OSError, ValueError, RecursionError):  # a folder that vanishes or cannot be listed: nothing to show
             pass
         return out
+
+    def desktop_usage(self, data_dir: Optional[Path], home: Path) -> Optional[Dict[str, Any]]:
+        """FR-4.20: {"t": ms, "fh", "sd"} of the newest sample in plan-usage-history.json; None on any problem."""
+        support = home.joinpath(*DESKTOP_SUPPORT)
+        base = data_dir if data_dir is not None else support / DESKTOP_DEFAULT
+        root = os.path.realpath(str(base))
+        try:
+            if os.path.dirname(root) != os.path.realpath(str(support)):
+                return None
+        except (OSError, ValueError):
+            return None
+        doc = _load_desktop_json(base / "plan-usage-history.json", root, DESKTOP_USAGE_MAX_BYTES)
+        if not isinstance(doc, dict) or doc.get("version") != 2 or not isinstance(doc.get("samples"), list):
+            return None
+        best = None  # type: Optional[Dict[str, Any]]
+        for smp in doc["samples"]:
+            t = smp.get("t") if isinstance(smp, dict) else None
+            u = smp.get("u") if isinstance(smp, dict) else None
+            if not isinstance(t, int) or isinstance(t, bool) or not isinstance(u, dict):
+                continue
+            if best is None or t > best["t"]:
+                best = {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}
+        return best
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:

@@ -1,4 +1,5 @@
 """SwiftBar menu output (FR-4.8 to FR-4.17, FR-6.5). Provider-agnostic: works on the gather_status dict."""
+import base64
 import calendar
 import os
 import re
@@ -7,6 +8,8 @@ import threading
 import time
 import unicodedata
 import uuid
+import struct
+import zlib
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 
 from ais import core, procs
@@ -78,9 +81,57 @@ def _short_title(title: str) -> str:
     return title if len(title) <= 50 else title[:49] + "…"
 
 
-def _header(account: dict, label: str) -> List[str]:
+BAR_W, BAR_H = 240, 16  # 120 x 8 points at 2x
+BAR_TRACK = (142, 142, 147, 102)
+BAR_BLUE = (10, 132, 255, 255)
+BAR_ORANGE = (255, 159, 10, 255)
+BAR_RED = (255, 69, 58, 255)
+USAGE_MAX_AGE = 24 * 3600
+
+
+def _clamp(value: Optional[float]) -> Optional[int]:
+    return None if value is None else max(0, min(100, int(round(value))))
+
+
+def _bar_png(value: Optional[float]) -> bytes:
+    """FR-4.20: an RGBA PNG bar, filled from the left in proportion to `value`, tagged 144 dpi so it shows at 1x size."""
+    v = _clamp(value)
+    filled = 0 if v is None else int(round(BAR_W * v / 100))
+    colour = BAR_RED if v == 100 else BAR_ORANGE if v is not None and v >= 80 else BAR_BLUE
+    row = b"\0" + bytes(colour) * filled + bytes(BAR_TRACK) * (BAR_W - filled)  # filter byte 0, then pixels
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", BAR_W, BAR_H, 8, 6, 0, 0, 0))
+            + chunk(b"pHYs", struct.pack(">IIB", 5669, 5669, 1)) + chunk(b"IDAT", zlib.compress(row * BAR_H))
+            + chunk(b"IEND", b""))
+
+
+def _usage(usage: Optional[dict], now: float) -> List[str]:
+    """FR-4.20: two bar items and the sample's age, or one line when the newest sample is over 24 h old."""
+    if not usage:
+        return []
+    t = usage["t"] / 1000.0
+    if now - t > USAGE_MAX_AGE:
+        return ["usage: no sample in the last 24 h"]
+    out = []
+    for name, key in (("5h", "fh"), ("week", "sd")):
+        v = _clamp(usage[key])
+        out.append("%s  %s | image=%s" % (name, "?" if v is None else "%d%%" % v,
+                                          base64.b64encode(_bar_png(v)).decode("ascii")))
+    try:
+        age = _ago(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t)), now)
+    except (OverflowError, ValueError, OSError):  # a time far out of range in the file
+        age = None
+    return out + (["updated " + age] if age else [])
+
+
+def _header(account: dict, label: str, now: float) -> List[str]:
     cred = account["credential_present"]
-    return ["✓ " + label if cred == "yes" else "%s · credential %s" % (label, sanitize(cred))]
+    head = "✓ " + label if cred == "yes" else "%s · credential %s" % (label, sanitize(cred))
+    return ([head + " | sfimage=person.crop.circle"]  # FR-4.22: icon names are fixed strings
+            + _usage(account.get("usage"), now))
 
 
 def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = None) -> str:
@@ -95,7 +146,7 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     out = [labels.get(first, "ais") if first else "ais", "---"]
     if privacy:
         for a in accounts:
-            out.extend(_header(a, labels[a["name"]]))
+            out.extend(_header(a, labels[a["name"]], now))
         out.append("---")
         shown = recent[:core.RECENT_COUNT]  # FR-4.14 counts the recent sessions, not the menu's wider list
         out.append("recent sessions: %d, open: %d" % (len(shown), sum(1 for s in shown if s["open"])))
@@ -106,15 +157,15 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
             by_owner[s["last_used"] if s["last_used"] in by_owner else None].append(s)
         groups = []  # type: List[List[str]]
         for a in accounts:
-            g = _header(a, labels[a["name"]])
+            g = _header(a, labels[a["name"]], now)
             mine = by_owner[a["name"]][:10]
             if mine:
-                g.append("Sessions (%d)" % len(mine))
+                g.append("Sessions (%d) | sfimage=list.bullet" % len(mine))
                 for s in mine:
                     g.extend(_session(s, a["name"], accounts, labels, bash, now))
             groups.append(g)
         if by_owner[None]:
-            g = ["Other sessions (account unknown)"]
+            g = ["Other sessions (account unknown) | sfimage=list.bullet"]
             for s in by_owner[None][:10]:
                 g.extend(_session(s, None, accounts, labels, bash, now))
             groups.append(g)
@@ -131,7 +182,7 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
         out.extend("Warning: " + sanitize(m) for m in msgs)
     out.append("---")
     for a in accounts:
-        out.append("Open %s Desktop | %s param1=desktop param2=%s terminal=false"
+        out.append("Open %s Desktop | %s param1=desktop param2=%s terminal=false sfimage=desktopcomputer"
                    % (labels[a["name"]], bash, _name(a["name"])))
     return "\n".join(out)
 
@@ -149,7 +200,7 @@ def _session(s: dict, owner: Optional[str], accounts: List[dict], labels: Dict[s
         return out
     for a in accounts:
         if a["name"] != owner:
-            out.append("----Resume in %s | %s param1=switch param2=--session param3=%s param4=%s terminal=true"
+            out.append("----Resume in %s | %s param1=switch param2=--session param3=%s param4=%s terminal=true sfimage=play.fill"
                        % (labels[a["name"]], bash, sid, _name(a["name"])))
     return out
 

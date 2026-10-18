@@ -8,6 +8,9 @@ import subprocess
 import sys
 import time
 import unicodedata
+import base64
+import struct
+import zlib
 
 from ais import menu
 from tests.helpers import SRC
@@ -39,22 +42,22 @@ class RenderTest(SwitchCase):
         self.assertEqual(out, [
             "Personal",
             "---",
-            "✓ Personal",
-            "Sessions (1)",
+            "✓ Personal | sfimage=person.crop.circle",
+            "Sessions (1) | sfimage=list.bullet",
             "--Main task · 2 h ago",
             "----/Users/x/proj",
-            "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true"
+            "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true sfimage=play.fill"
             % (AIS, UUID),
             "---",
-            "Work · credential unknown",
+            "Work · credential unknown | sfimage=person.crop.circle",
             "---",
-            "Other sessions (account unknown)",
+            "Other sessions (account unknown) | sfimage=list.bullet",
             "--Second · open",
             "----/Users/x/other",
             "----Quit Claude in /Users/x/other to resume | disabled=true",
             "---",
-            "Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false" % AIS,
-            "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS,
+            "Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false sfimage=desktopcomputer" % AIS,
+            "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS,
         ])
 
     def test_render_bar_is_ais_without_sessions(self):
@@ -83,11 +86,15 @@ class RenderTest(SwitchCase):
         lines = out.split("\n")
         for ln in lines:
             self.assertFalse(any(unicodedata.category(c).startswith("C") for c in ln), ln)
-        # every " | " introduces one of our own actions: 2 resume (unknown last_used), 2 desktop, 1 quit
-        acts = [ln.split(" | ")[1].split()[0] for ln in lines if " | " in ln]
+        # every " | " introduces one of our own actions: 2 resume (unknown last_used), 2 desktop, 1 quit,
+        # or only a fixed icon (FR-4.22): 2 headers, 1 Other sessions
+        params = [ln.split(" | ")[1] for ln in lines if " | " in ln]
+        icons = [p for p in params if re.fullmatch(r"sfimage=(person\.crop\.circle|list\.bullet)", p)]
+        self.assertEqual(len(icons), 3)
+        acts = [p.split()[0] for p in params if p not in icons]
         self.assertEqual(sorted(acts), ["bash=" + AIS] * 4 + ["disabled=true"])
         self.assertEqual(sum(1 for ln in lines if re.match(r"--[^-]", ln)), 2)
-        self.assertEqual(lines[2], "✓ Personal")  # label "Per|sonal\n" cleaned in the header
+        self.assertEqual(lines[2], "✓ Personal | sfimage=person.crop.circle")  # label "Per|sonal\n" cleaned in the header
         evil = [ln for ln in lines if "Evil" in ln]
         self.assertEqual(len(evil), 1)
         self.assertRegex(evil[0], r"^--x  bash=/bin/rm")  # one level, text kept inert
@@ -100,11 +107,11 @@ class RenderTest(SwitchCase):
 
     def test_privacy_mode_hides_folders_and_titles(self):
         out = menu.render(status(), True, AIS, NOW)
-        self.assertEqual(out.split("\n")[2:6], ["✓ Personal", "Work · credential unknown", "---",
+        self.assertEqual(out.split("\n")[2:6], ["✓ Personal | sfimage=person.crop.circle", "Work · credential unknown | sfimage=person.crop.circle", "---",
                                                 "recent sessions: 2, open: 1"])
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
-        self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS, out)
+        self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS, out)
 
     def test_label_leading_dashes_stripped(self):
         s = status()
@@ -112,8 +119,8 @@ class RenderTest(SwitchCase):
         s["accounts"][1]["label"] = "---"
         out = menu.render(s, False, AIS, NOW).split("\n")
         self.assertEqual(out[0], "x")
-        self.assertEqual(out[2], "✓ x")
-        self.assertIn("work · credential unknown", out)
+        self.assertEqual(out[2], "✓ x | sfimage=person.crop.circle")
+        self.assertIn("work · credential unknown | sfimage=person.crop.circle", out)
         self.assertTrue(any(ln.startswith("----Resume in work | bash=") for ln in out))
 
     def test_age_buckets(self):
@@ -151,10 +158,10 @@ class RenderTest(SwitchCase):
                         "last_used": "personal", "open": False, "modified": "2026-10-16T10:00:00Z"}
                        for i in range(12)]
         lines = menu.render(s, False, AIS, NOW).split("\n")
-        self.assertIn("Sessions (10)", lines)
+        self.assertIn("Sessions (10) | sfimage=list.bullet", lines)
         items = [ln for ln in lines if ln.startswith("--T")]
         self.assertEqual(items, ["--T%d · 2 h ago" % i for i in range(10)])
-        self.assertNotIn("Other sessions (account unknown)", lines)
+        self.assertNotIn("Other sessions (account unknown) | sfimage=list.bullet", lines)
 
     def test_run_refuses_to_spawn_after_kill_live(self):
         from ais import procs
@@ -178,8 +185,8 @@ class RenderTest(SwitchCase):
         s = status()
         s["accounts"][1]["label"] = "Wo|rk\nx"
         lines = [ln for ln in menu.render(s, False, AIS).split("\n") if ln.startswith("Open ")]
-        self.assertEqual(lines, ["Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false" % AIS,
-                                 "Open Workx Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS])
+        self.assertEqual(lines, ["Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false sfimage=desktopcomputer" % AIS,
+                                 "Open Workx Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS])
 
     def test_invalid_session_id_or_account_name_fails(self):
         s = status()
@@ -209,6 +216,131 @@ class RenderTest(SwitchCase):
         before = copy.deepcopy(s)
         menu.render(s, False, AIS)
         self.assertEqual(s, before)
+
+
+def png_pixels(data):
+    """(width, height, dpi x, dpi y, rows of RGBA tuples) of an 8-bit RGBA PNG with filter 0 rows."""
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    pos, chunks, idat = 8, {}, b""
+    while pos < len(data):
+        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        assert zlib.crc32(kind + body) & 0xffffffff == struct.unpack(">I", data[pos + 8 + n:pos + 12 + n])[0]
+        if kind == b"IDAT":
+            idat += body
+        chunks[kind] = body
+        pos += 12 + n
+    w, h, depth, ctype = struct.unpack(">IIBB", chunks[b"IHDR"][:10])
+    assert (depth, ctype) == (8, 6)
+    px, py, unit = struct.unpack(">IIB", chunks[b"pHYs"])
+    raw = zlib.decompress(idat)
+    rows = []
+    for y in range(h):
+        line = raw[y * (4 * w + 1):(y + 1) * (4 * w + 1)]
+        assert line[0] == 0
+        rows.append([tuple(line[1 + 4 * x:5 + 4 * x]) for x in range(w)])
+    return w, h, (px, py, unit), rows
+
+
+USAGE_T = (NOW - 2 * 3600) * 1000
+
+
+def with_usage(personal=None, work=None, **over):
+    s = status(**over)
+    s["accounts"][0]["usage"] = personal
+    s["accounts"][1]["usage"] = work
+    return s
+
+
+class UsageRenderTest(SwitchCase):
+    """FR-4.20: drawn usage bars under each account header."""
+
+    def bar(self, line):
+        m = re.fullmatch(r"(.*) \| image=([A-Za-z0-9+/=]+)", line)
+        self.assertIsNotNone(m, line)
+        return m.group(1), png_pixels(base64.b64decode(m.group(2)))
+
+    def test_bar_png_size_dpi_and_fill(self):
+        w, h, dpi, rows = png_pixels(menu._bar_png(69))
+        self.assertEqual((w, h), (240, 16))  # 120 x 8 points at 2x
+        self.assertEqual(dpi, (5669, 5669, 1))  # 144 dpi
+        mid = rows[8]
+        self.assertEqual(mid[0], menu.BAR_BLUE)
+        self.assertEqual(mid[165], menu.BAR_BLUE)  # round(240 * 0.69) = 166 filled
+        self.assertEqual(mid[166], menu.BAR_TRACK)
+        self.assertEqual(mid[239], menu.BAR_TRACK)
+
+    def test_bar_colour_by_value(self):
+        for value, colour, filled in ((79, menu.BAR_BLUE, 190), (80, menu.BAR_ORANGE, 192),
+                                      (99, menu.BAR_ORANGE, 238), (100, menu.BAR_RED, 240),
+                                      (150, menu.BAR_RED, 240), (-5, None, 0), (None, None, 0), (0, None, 0)):
+            with self.subTest(value=value):
+                mid = png_pixels(menu._bar_png(value))[3][8]
+                self.assertEqual(sum(1 for c in mid if c != menu.BAR_TRACK), filled)
+                if colour:
+                    self.assertEqual(mid[0], colour)
+
+    def test_usage_lines_under_header(self):
+        out = menu.render(with_usage(work={"t": USAGE_T, "fh": 69, "sd": 68.6}), False, AIS, NOW).split("\n")
+        i = out.index("Work · credential unknown | sfimage=person.crop.circle")
+        self.assertEqual(self.bar(out[i + 1])[0], "5h  69%")
+        self.assertEqual(self.bar(out[i + 2])[0], "week  69%")
+        self.assertEqual(out[i + 3], "updated 2 h ago")
+        self.assertEqual(out[i + 4], "---")
+        self.assertEqual(out[2:4], ["✓ Personal | sfimage=person.crop.circle", "Sessions (1) | sfimage=list.bullet"])  # no usage: nothing
+
+    def test_missing_value_shows_question_mark_and_empty_bar(self):
+        out = menu.render(with_usage({"t": USAGE_T, "fh": None, "sd": 150}), False, AIS, NOW).split("\n")
+        text, (_, _, _, rows) = self.bar(out[3])
+        self.assertEqual(text, "5h  ?")
+        self.assertEqual(set(rows[8]), {menu.BAR_TRACK})
+        self.assertEqual(self.bar(out[4])[0], "week  100%")
+
+    def test_old_sample_shows_no_sample_line(self):
+        old = (NOW - 24 * 3600 - 1) * 1000
+        out = menu.render(with_usage({"t": old, "fh": 9, "sd": 9}), False, AIS, NOW).split("\n")
+        self.assertEqual(out[2:5], ["✓ Personal | sfimage=person.crop.circle", "usage: no sample in the last 24 h", "Sessions (1) | sfimage=list.bullet"])
+        edge = menu.render(with_usage({"t": (NOW - 24 * 3600) * 1000, "fh": 9, "sd": 9}), False, AIS, NOW)
+        self.assertIn("updated 24 h ago", edge)
+
+    def test_far_future_sample_time_does_not_break_the_menu(self):
+        out = menu.render(with_usage({"t": 10 ** 22, "fh": 1, "sd": 2}), False, AIS, NOW).split("\n")
+        self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0], out[5]], ["5h  1%", "week  2%", "Sessions (1) | sfimage=list.bullet"])
+
+    def test_privacy_mode_shows_usage(self):
+        out = menu.render(with_usage({"t": USAGE_T, "fh": 0, "sd": 73}), True, AIS, NOW).split("\n")
+        self.assertEqual(out[2], "✓ Personal | sfimage=person.crop.circle")
+        self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0], out[5], out[6]],
+                         ["5h  0%", "week  73%", "updated 2 h ago", "Work · credential unknown | sfimage=person.crop.circle"])
+
+
+class IconTest(SwitchCase):
+    """FR-4.22: fixed SF Symbol names on headers, Sessions, Resume and Open Desktop items."""
+
+    def test_icons(self):
+        lines = menu.render(status(), False, AIS, NOW).split("\n")
+        for line in ("✓ Personal | sfimage=person.crop.circle",
+                     "Work · credential unknown | sfimage=person.crop.circle",
+                     "Sessions (1) | sfimage=list.bullet",
+                     "Other sessions (account unknown) | sfimage=list.bullet",
+                     "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true"
+                     " sfimage=play.fill" % (AIS, UUID),
+                     "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer"
+                     % AIS):
+            with self.subTest(line=line):
+                self.assertIn(line, lines)
+
+    def test_privacy_headers_have_icons(self):
+        lines = menu.render(status(), True, AIS, NOW).split("\n")
+        self.assertIn("✓ Personal | sfimage=person.crop.circle", lines)
+
+    def test_untrusted_text_never_sets_an_icon(self):
+        s = status()
+        s["accounts"][0]["label"] = "x sfimage=trash"
+        s["recent"][0]["title"] = "t | sfimage=trash"
+        out = menu.render(s, False, AIS, NOW)
+        self.assertNotIn("| sfimage=trash", out)
+        self.assertIn("✓ x sfimage=trash | sfimage=person.crop.circle", out.split("\n"))
 
 
 class RenderProcessTest(SwitchCase):
@@ -249,7 +381,7 @@ class RenderProcessTest(SwitchCase):
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
         self.assertEqual(lines[:2], ["Work", "---"])
-        self.assertIn("✓ Personal", lines)
+        self.assertIn("✓ Personal | sfimage=person.crop.circle", lines)
         self.assertTrue(any(ln.startswith("--Main task · ") for ln in lines), out)
         self.assertIn("----~/proj", lines)
         self.assertTrue(any(ln.startswith("----Resume in Personal | bash=") and "param3=" + UUID in ln
@@ -265,7 +397,7 @@ class RenderProcessTest(SwitchCase):
         code, out, err, _ = self.render()
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
-        i = lines.index("Other sessions (account unknown)")
+        i = lines.index("Other sessions (account unknown) | sfimage=list.bullet")
         self.assertEqual(len([ln for ln in lines[i:] if re.match(r"--[^-]", ln)]), 8, out)
         _, js, _ = self.ais("status", "--json")
         self.assertEqual(len(json.loads(js)["recent"]), 5)
