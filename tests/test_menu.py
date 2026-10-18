@@ -1,4 +1,4 @@
-"""FR-4.8, FR-4.9, FR-4.11 to FR-4.14, FR-6.5, NFR-PERF: `ais menu render` (SwiftBar)."""
+"""FR-4.8, FR-4.9, FR-4.11 to FR-4.17, FR-6.5, NFR-PERF: `ais menu render` (SwiftBar)."""
 import calendar
 import copy
 import json
