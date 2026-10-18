@@ -286,7 +286,8 @@ class UsageRenderTest(SwitchCase):
 
     def test_bar_colour_by_value(self):
         for value, colour, filled in ((79, menu.BAR_BLUE, 190), (80, menu.BAR_ORANGE, 192),
-                                      (99, menu.BAR_ORANGE, 238), (100, menu.BAR_RED, 240),
+                                      (89, menu.BAR_ORANGE, 214), (90, menu.BAR_RED, 216),
+                                      (99, menu.BAR_RED, 238), (100, menu.BAR_RED, 240),
                                       (150, menu.BAR_RED, 240), (-5, None, 0), (None, None, 0), (0, None, 0)):
             with self.subTest(value=value):
                 mid = png_pixels(menu._bar_png(value))[3][8]
