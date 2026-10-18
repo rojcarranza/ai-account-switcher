@@ -2,11 +2,7 @@
 
 `ais` keeps two Claude Code accounts signed in side by side on one Mac. When one account hits its usage limit, one command resumes the same session on the other account, with the conversation, memory and project context intact.
 
-macOS only. Python 3.9+ standard library, shipped as one file (a Python zipapp). No services, no secrets read or stored: each account's login stays in the macOS Keychain.
-
-## Status
-
-All commands are built. The build gates (the spike on a real Mac) are done; see [docs/spike-results.md](docs/spike-results.md). The checks that need a real Mac (sign-in, resume timing, menu, Desktop) are listed in [docs/manual-checks.md](docs/manual-checks.md) and are run by hand. Progress: [docs/progress.md](docs/progress.md).
+macOS only. Python 3.9+ standard library, shipped as one file. ais never reads or stores a secret: each account's login stays in its own macOS Keychain slot, and both accounts share `~/.claude`.
 
 ## Install
 
@@ -14,38 +10,106 @@ All commands are built. The build gates (the spike on a real Mac) are done; see 
 make install
 ```
 
-This builds `dist/ais` and copies it to `~/.local/bin/ais`. A different previous version is kept as `~/.local/bin/ais.prev`. Check it:
-
-```bash
-ais --version
-```
-
-It prints `ais 0.1.0`. If the shell cannot find `ais`, add `~/.local/bin` to `PATH` in `~/.zshrc`:
+This puts `ais` in `~/.local/bin` (the previous version is kept as `ais.prev`). If `ais --version` is not found, add this line to `~/.zshrc`:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## Commands
+## Set up once
 
-| Command | What it does |
+```bash
+ais setup
+```
+
+Press Enter to take each default:
+
+```
+Default account name [personal]:
+Label for personal [Personal]:
+Extra account name [work]:
+Label for work [Work]:
+Folder for work (number or path) [/Users/<user>/.claude-accounts/work]:
+Setup will create:
+  /Users/<user>/.config/ais/config.json
+  ...
+  /Users/<user>/.claude-accounts/work/ (empty, mode 0700)
+Create these? [y/N] y
+```
+
+`personal` is your normal `claude` login. Setup then opens the sign-in for any account that is logged out: sign in to the **work** account there. To redo a sign-in later: `ais login work`.
+
+**Naming tip:** you type the account name in every command, so keep it short and about the role, not the email: `personal` / `work`, or `pro` / `max`, or `client-acme`. Names are lowercase letters, digits and `-`, up to 32 characters. Put the detail (such as the email) in the label, which is display-only (`ais status`, prompts, the menu).
+
+## Switch when you hit the limit
+
+1. In the Claude session that hit its limit, type `/compact` (a resumed long session uses part of the other account's limit straight away), then `/exit`.
+2. In the same folder, run:
+
+   ```bash
+   ais switch
+   ```
+
+That resumes the newest session in this folder on the other account. ais knows "the other account" only for sessions it started or switched (`ais run`, `ais switch`). For a session started with plain `claude`, name the account: `ais switch work`.
+
+The first switch from one account to the other asks once:
+
+```
+ais: the full transcript of session 11587d78-f810-4c64-870f-d7c9c6058ce2 (used under Personal) will be sent under Work.
+ais: this is asked once for personal->work.
+Continue? [y/N]
+```
+
+Not sure what it will do? Add `--dry-run`:
+
+```
+$ ais switch work --dry-run
+session 11587d78-f810-4c64-870f-d7c9c6058ce2
+folder /Users/<user>/Dev/projects/ai-account-switcher
+account work
+CLAUDE_SECURESTORAGE_CONFIG_DIR=/Users/<user>/.claude-accounts/work claude --resume 11587d78-f810-4c64-870f-d7c9c6058ce2
+```
+
+Other ways to pick the session:
+
+```bash
+ais switch --pick                                          # choose from the 5 newest in this folder
+ais switch --session 11587d78-f810-4c64-870f-d7c9c6058ce2  # a specific one
+```
+
+## Everyday commands
+
+| Command | Example |
 |---|---|
-| `ais setup [--dry-run]` | Guided setup: name the accounts, sign in where needed |
-| `ais login <account> [--dry-run]` | Sign in to one account in its own slot |
-| `ais switch [account] [--pick] [--session <id>] [--dry-run]` | Resume the newest session in this folder on the other account; `--pick` chooses one of the 5 newest |
-| `ais run [account] [--dry-run] [-- claude args]` | Start a new `claude` session on an account (default: the default account) |
-| `ais status [--json]` | Accounts, sign-in state, newest session, self-check |
-| `ais desktop <account> [--dry-run]` | Open that account's Claude Desktop window |
-| `ais menu render` | Print the SwiftBar menu (SwiftBar runs this) |
-| `ais menu install [--dry-run]` | Write the optional SwiftBar plugin after a yes |
-| `ais menu uninstall [--dry-run]` | Remove that plugin file after a yes |
-| `ais uninstall [--dry-run]` | Remove ais's own files; never touches `~/.claude` or the Keychain |
+| Start a new session on an account (args after `--` go to `claude`) | `ais run work -- --model opus` |
+| Check both accounts and the newest session here | `ais status` |
+| Open Claude Desktop as the other account | `ais desktop work` |
+| SwiftBar menu bar status and one-click resume (needs SwiftBar) | `ais menu install` / `ais menu uninstall` |
+| Remove ais's files (never `~/.claude` or the Keychain) | `ais uninstall` |
 
-`switch`, `run` and `login` also take `--allow-api-key`, which overrides the refusal to start `claude` when an API key or similar billing setting is set. Exact behaviour and exit codes: [docs/requirements.md](docs/requirements.md).
+`ais status` prints:
 
-## Daily use
+```
+  personal (Personal): credential present: yes
+  work (Work): credential present: yes
+session 11587d78-f810-4c64-870f-d7c9c6058ce2: last used personal, not open
+self-check: ok
+```
 
-The short version: `/compact`, `/exit`, then `ais switch`. Details, rules and the Desktop windows: [docs/usage.md](docs/usage.md).
+Every command that changes something takes `--dry-run`.
+
+## Good to know
+
+- `ais` cannot tell which email a slot is signed in to. Sign in to the right account in each slot.
+- Sign in to an extra account only with `ais login <account>`. A `/login` inside a plain `claude` session replaces the default account's login.
+- Do not set `CLAUDE_CONFIG_DIR`: it splits the shared `~/.claude`, and `ais switch` stops finding sessions.
+- If Claude is still running the session, `ais switch` stops with exit 75: type `/exit` there first.
+- `ais` refuses to start `claude` when the environment or Claude settings would bill an API key instead of your subscription (for example `ANTHROPIC_API_KEY` or `ANTHROPIC_BASE_URL` set). `--allow-api-key` overrides.
+- Shared memory, `CLAUDE.md` and settings in `~/.claude` go with every session on either account.
+
+More: daily use and Desktop windows in [docs/usage.md](docs/usage.md), undoing a damaged session in [docs/restore.md](docs/restore.md), removing Claude Switcher in [docs/migrate-from-claude-switcher.md](docs/migrate-from-claude-switcher.md).
+
+Exit codes and exact behaviour: [docs/requirements.md](docs/requirements.md).
 
 ## Development
 
@@ -53,19 +117,6 @@ The short version: `/compact`, `/exit`, then `ais switch`. Details, rules and th
 make lint test build
 ```
 
-- Tests: `python3 -m unittest discover -s tests -t .` (single test: `python3 -m unittest tests.test_cli.CliTest.test_version`).
-- Run from source: `PYTHONPATH=src python3 -m ais --version`.
-- Python 3.9 syntax only; CI runs 3.9 and 3.12 on Linux.
-- Every change is tracked by a GitHub issue and lands through a pull request; rules in [CLAUDE.md](CLAUDE.md).
-
-## Documents
-
-- [docs/brief.md](docs/brief.md): the problem, scope and non-goals
-- [docs/requirements.md](docs/requirements.md): what ais must do
-- [docs/architecture.md](docs/architecture.md) and [docs/adr/](docs/adr/): how, and why
-- [docs/spike-results.md](docs/spike-results.md): what was proven on a real Mac
-- [docs/progress.md](docs/progress.md): where the build stands
-- [docs/usage.md](docs/usage.md): daily use
-- [docs/restore.md](docs/restore.md): put a snapshot back
-- [docs/manual-checks.md](docs/manual-checks.md): checks M1 to M6 to run on the Mac
-- [docs/migrate-from-claude-switcher.md](docs/migrate-from-claude-switcher.md): remove Claude Switcher
+- Single test: `python3 -m unittest tests.test_cli.CliTest.test_version`
+- Run from source: `PYTHONPATH=src python3 -m ais status`
+- Python 3.9 syntax only. Rules: [CLAUDE.md](CLAUDE.md). Scope: [docs/brief.md](docs/brief.md). Design: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/). Build status: [docs/progress.md](docs/progress.md), [docs/spike-results.md](docs/spike-results.md). Checks to run on the Mac: [docs/manual-checks.md](docs/manual-checks.md).
