@@ -84,6 +84,19 @@ class DesktopTest(SwitchCase):
         self.assertIn("desktop_data_dir", err)
         self.assertEqual(self.open_calls(), [])
 
+    def test_case_variant_of_the_default_desktop_folder_exits_78(self):
+        support = self.home / "Library" / "Application Support"
+        (support / "Claude").mkdir(parents=True)
+        if not (support / "claude").exists():
+            self.skipTest("case-sensitive filesystem")
+        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+                                    "desktop_data_dir": str(support / "claude")}})
+        self.forbid_open()
+        code, _, err = self.desktop("work")
+        self.assertEqual(code, 78)
+        self.assertIn("desktop_data_dir", err)
+        self.assertEqual(self.open_calls(), [])
+
     def test_already_running_does_not_launch(self):
         self.forbid_open()
         self.env(FAKE_PS_OUT="4242 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s"

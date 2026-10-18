@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unicodedata
 
@@ -203,5 +204,16 @@ class AccountsTest(TempHomeCase):
         c["accounts"]["work"]["desktop_data_dir"] = path
         c["accounts"]["spare"] = {"label": "Spare", "provider": "claude", "credDir": str(self.home / ".claude-spare"),
                                   "desktop_data_dir": path}
+        self.assert_bad_desktop_dir(c, "spare")
+
+    def test_case_variant_desktop_data_dir_counts_as_shared(self):
+        a = self.support() / "Claude-Work"
+        a.mkdir()
+        if not os.path.exists(str(self.support() / "claude-work")):
+            self.skipTest("case-sensitive filesystem")
+        c = self.cfg()
+        c["accounts"]["work"]["desktop_data_dir"] = str(a)
+        c["accounts"]["spare"] = {"label": "Spare", "provider": "claude", "credDir": str(self.home / ".claude-spare"),
+                                  "desktop_data_dir": str(self.support() / "claude-work")}
         self.assert_bad_desktop_dir(c, "spare")
 

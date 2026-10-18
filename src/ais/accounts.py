@@ -59,6 +59,14 @@ def _check_cred_dir(path: Path, name: str, cred_dir: object, home: str) -> str:
     return cred_dir
 
 
+def same_folder(a: str, b: str) -> bool:
+    """Same realpath, or both exist and are the same file (a case-insensitive filesystem)."""
+    try:
+        return os.path.realpath(a) == os.path.realpath(b) or os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def _check_desktop_dir(path: Path, name: str, value: object, home: str) -> str:
     def bad(rule: str) -> AisError:
         return AisError(EXIT_CONFIG, "%s: account %s: desktop_data_dir %r %s" % (path, name, value, rule))
@@ -138,9 +146,9 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
             if name == default:
                 raise bad("account %s: the default account must not set desktop_data_dir" % name)
             desktop = _check_desktop_dir(path, name, desktop, home)
-            real = os.path.realpath(desktop)
-            if real in desks:
-                raise bad("accounts %s and %s share desktop_data_dir %r" % (desks[real], name, desktop))
-            desks[real] = name
+            for other_path, other in desks.items():  # samefile: APFS ignores case, realpath keeps the spelling
+                if other_path == os.path.realpath(desktop) or same_folder(other_path, desktop):
+                    raise bad("accounts %s and %s share desktop_data_dir %r" % (other, name, desktop))
+            desks[os.path.realpath(desktop)] = name
         accounts[name] = Account(name, label, provider, cred_dir, desktop)
     return Config(accounts, default, acks, privacy)
