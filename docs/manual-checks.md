@@ -40,9 +40,10 @@ Result: ____ (date ____)
    ```bash
    python3 -c '
    import json, os
-   rows = [json.loads(x) for x in open(os.path.expanduser("~/.config/ais/ais.log"))]
-   t = sorted(r["tool_seconds"] for r in rows if r["command"] == "switch" and r["tool_seconds"] is not None)[-20:]
-   print(len(t), "switches, p95", t[int(0.95 * (len(t) - 1))], "s")'
+   logs = [os.path.expanduser("~/.config/ais/ais.log" + s) for s in (".1", "")]  # .1 = rotated, older
+   rows = [json.loads(x) for p in logs if os.path.exists(p) for x in open(p)]
+   t = sorted([r["tool_seconds"] for r in rows if r["command"] == "switch" and r["tool_seconds"] is not None][-20:])
+   print(len(t), "switches, p95", t[int(0.95 * (len(t) - 1))] if t else "n/a", "s")'
    ```
 
 2. Time 20 menu renders and print the p95:
