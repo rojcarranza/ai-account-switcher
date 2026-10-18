@@ -447,19 +447,19 @@ class ClaudeProvider:
         doc = _load_desktop_json(base / "plan-usage-history.json", root, DESKTOP_USAGE_MAX_BYTES)
         if not isinstance(doc, dict) or doc.get("version") != 2 or not isinstance(doc.get("samples"), list):
             return None
-        best = real = None  # type: Optional[Dict[str, Any]]
+        found = []  # type: List[Tuple[Any, Dict[str, Any]]]
         for smp in doc["samples"]:
             t = smp.get("t") if isinstance(smp, dict) else None
             u = smp.get("u") if isinstance(smp, dict) else None
             if not isinstance(t, int) or isinstance(t, bool) or abs(t) >= 2 ** 53 or not isinstance(u, dict):
                 continue
-            cur = {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}
-            if best is None or t > best["t"]:
-                best = cur
-            # Desktop can save 0/0 while its own tray shows real usage (#69): prefer the newest other sample
-            if not (cur["fh"] == 0 and cur["sd"] == 0) and (real is None or t > real["t"]):
-                real = cur
-        return real or best
+            found.append((smp.get("org"), {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}))
+        if not found:
+            return None
+        org, best = max(found, key=lambda f: f[1]["t"])
+        # Desktop can save 0/0 while its own tray shows real usage (#69): prefer the newest other sample of that org
+        real = [s for o, s in found if o == org and not (s["fh"] == 0 and s["sd"] == 0)]
+        return max(real, key=lambda s: s["t"]) if real else best
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:

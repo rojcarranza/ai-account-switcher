@@ -198,6 +198,14 @@ class UsageTest(DesktopFixture):
         usage_file(d, [sample(100, 1, 2), sample(200, 77, 69), sample(300, 0, 0), sample(400, 0, 0.0)])
         self.assertEqual(self.usage(d), {"t": 200, "fh": 77, "sd": 69})
 
+    def test_all_zero_fallback_stays_in_the_newest_org(self):
+        d = self.desktop()
+        other = dict(sample(200, 80, 90), org="00000000-0000-0000-0000-000000000000")
+        usage_file(d, [sample(100, 5, 6), other, sample(300, 0, 0)])
+        self.assertEqual(self.usage(d), {"t": 100, "fh": 5, "sd": 6})
+        usage_file(d, [other, sample(300, 0, 0)])
+        self.assertEqual(self.usage(d), {"t": 300, "fh": 0, "sd": 0})
+
     def test_one_zero_value_is_a_real_sample(self):
         d = self.desktop()
         usage_file(d, [sample(100, 77, 69), sample(200, 0, 73), sample(300, 12, 0)])
