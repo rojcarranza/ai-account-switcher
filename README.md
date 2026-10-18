@@ -109,6 +109,8 @@ Every command that changes something takes `--dry-run`.
 
 Exit codes and exact behaviour: [docs/requirements.md](docs/requirements.md).
 
+More: [daily flow](docs/usage.md), [restore a session from a snapshot](docs/restore.md), [move from Claude Switcher](docs/migrate-from-claude-switcher.md), [manual checks on the Mac](docs/manual-checks.md).
+
 ## Development
 
 ```bash
