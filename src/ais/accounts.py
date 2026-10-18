@@ -106,6 +106,7 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
 
     home = os.path.realpath(str(store.home))
     accounts = {}  # type: Dict[str, Account]
+    desks = {}  # type: Dict[str, str]  # realpath -> account, one Desktop profile each
     slots = {}  # type: Dict[str, str]  # realpath -> account, one Keychain slot each
     for name in sorted(raw_accounts, key=lambda n: n != default):  # default first: its errors win
         a = raw_accounts[name]
@@ -137,5 +138,9 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
             if name == default:
                 raise bad("account %s: the default account must not set desktop_data_dir" % name)
             desktop = _check_desktop_dir(path, name, desktop, home)
+            real = os.path.realpath(desktop)
+            if real in desks:
+                raise bad("accounts %s and %s share desktop_data_dir %r" % (desks[real], name, desktop))
+            desks[real] = name
         accounts[name] = Account(name, label, provider, cred_dir, desktop)
     return Config(accounts, default, acks, privacy)

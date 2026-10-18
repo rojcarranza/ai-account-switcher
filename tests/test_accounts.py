@@ -197,3 +197,11 @@ class AccountsTest(TempHomeCase):
             with self.subTest(label):
                 self.assert_bad_desktop_dir(self.work(desktop_data_dir=value))
 
+    def test_two_accounts_sharing_a_desktop_data_dir_exit_78(self):
+        path = str(self.support() / "Claude-Work")
+        c = self.cfg()
+        c["accounts"]["work"]["desktop_data_dir"] = path
+        c["accounts"]["spare"] = {"label": "Spare", "provider": "claude", "credDir": str(self.home / ".claude-spare"),
+                                  "desktop_data_dir": path}
+        self.assert_bad_desktop_dir(c, "spare")
+
