@@ -296,3 +296,14 @@ class UninstallTest(TempHomeCase):
         self.assertEqual(code, 0, err)
         self.assertIn(str(self.home / "Library" / "Application Support" / "Claude-ais-<account>")
                       + ": each extra account's Desktop data folder (kept; it holds the Desktop sign-in)", out)
+
+    def test_uninstall_lists_a_default_folder_override_without_failing(self):
+        folder = str(self.home / "Library" / "Application Support" / "Claude")
+        (self.ais_dir / "config.json").write_text(json.dumps({
+            "version": 1, "default": "personal", "accounts": {
+                "personal": {"label": "Personal", "provider": "claude", "credDir": None},
+                "work": {"label": "Work", "provider": "claude", "credDir": self.work,
+                         "desktop_data_dir": folder}}}))
+        code, out, err = self.ais("", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("%s: your Work Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)

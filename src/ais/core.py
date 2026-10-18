@@ -763,7 +763,7 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
         if hint:
             steps.append("Keychain item of %s: %s" % (a.label, hint))
         steps.append("%s: your %s Desktop data folder (kept; it holds the Desktop sign-in)"
-                     % (ctx.provider_for(a).desktop_data_dir(a, home), a.label))
+                     % (a.desktop_data_dir or ctx.provider_for(a).desktop_data_dir(a, home), a.label))
     if not ctx.config.accounts:  # the no-config placeholder: generic wording
         steps.append(str(home / provider.cred_dir_root / "<account>") + ": each extra account's folder (kept)")
         hint = provider.credential_removal_hint(None)
