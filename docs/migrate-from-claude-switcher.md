@@ -17,7 +17,13 @@ Check: `ais status` shows `credential present: yes` for both accounts, and the W
 
 Quit Claude Switcher and its Work Desktop window (Cmd+Q on each).
 
-Check: neither appears in Activity Monitor.
+Check: Activity Monitor cannot tell Desktop instances apart (all are called `Claude`), so use:
+
+```bash
+ps -x -ww -o pid=,args= | grep -i 'user-data-dir=.*Claude-work'
+```
+
+It should print no `.../Contents/MacOS/Claude` line. Claude Switcher's own app process should be gone too.
 
 ## 3. Remove the app
 
@@ -33,9 +39,9 @@ Check: `ls ~/.config/claude-switcher` says there is no such file or folder.
 
 ## 5. Optional, last: remove its Work Desktop data
 
-Remove `~/Library/Application Support/Claude-work`. This deletes that window's local data and its sign-in. Skip it if unsure; it only takes disk space. ais uses `Claude-ais-work`, a different folder.
+Remove `~/Library/Application Support/Claude-work`. macOS folder names ignore case, so this is the same folder as `Claude-Work`, and it may appear under that name. It is the data folder of the Work Desktop you run today. Removing it deletes every chat, every Code session and the sign-in of that Desktop. Do it only after you have moved your work to the window opened by `ais desktop work`. Skip it if unsure; it only takes disk space. ais uses `Claude-ais-work`, a different folder.
 
-Check: `ls ~/Library/Application\ Support | grep Claude` no longer lists `Claude-work` and still lists `Claude-ais-work`.
+Check: `ls -d ~/Library/Application\ Support/Claude-work` says no such file or directory, and `ls -d ~/Library/Application\ Support/Claude-ais-work` still prints the folder.
 
 ## 6. Keep these
 

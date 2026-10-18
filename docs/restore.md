@@ -30,6 +30,6 @@ Restoring replaces the live transcript with the saved one. Anything said after t
    cp -R "$SNAP"/. "$DEST"/
    ```
    This overwrites `<session id>.jsonl` and merges `<session id>/`.
-5. Resume: `ais switch`, or `claude --resume <session id>` in the session's folder.
+5. Resume on the account you want to continue on: `ais switch <account> --session <session id>` (or `ais switch <account>` in the session's folder, which takes the newest session there). A plain `claude --resume` would run on the default account, whatever the session used last.
 
 ais never writes to `~/.claude` itself. This copy is by hand, and it is the only way a snapshot goes back.

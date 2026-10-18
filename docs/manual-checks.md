@@ -71,14 +71,15 @@ Expected: `p95 =` is below 1 (seconds).
 
 Part B, menu render:
 1. Run once to warm the cache: `ais menu render > /dev/null`
-2. Time 20 runs:
+2. Record the transcript count: `find ~/.claude/projects -name '*.jsonl' | wc -l`. The NFR-PERF bound holds for up to 5,000 transcript files.
+3. Time 20 runs:
    ```bash
    python3 -c "import subprocess as s,time as m;t=sorted((lambda a:(s.run(['ais','menu','render'],stdout=s.DEVNULL),m.monotonic()-a)[1])(m.monotonic()) for _ in range(20));print(len(t),'runs, p95 =',t[18])"
    ```
 
 Expected: `p95 =` is below 2 (seconds).
 
-Result A: ____ s (Pass/Fail)  Result B: ____ s (Pass/Fail)  Date: ____
+Result A: ____ s (Pass/Fail)  Result B: ____ s (Pass/Fail), transcripts: ____  Date: ____
 
 ## M5 NFD folder names and process parsing (until macOS CI is on)
 
@@ -94,7 +95,7 @@ Steps:
    ```
 2. `ais run personal`, ask one short question, `/exit`.
 3. `ais switch --dry-run` (a dry run does not check for an open session). Check it prints `session <id>` and `folder` with this folder (not `nothing to resume`).
-4. `ais run personal` again and leave it open. In another terminal, in the same folder, run `ais switch`. Check it refuses with `Claude is still running in` and `Type /exit there, then run ais switch again.` (exit code 75: `echo $?`).
+4. `ais run personal` again and leave it open. In another terminal, in the same folder, run `ais switch`. Check it refuses with `Claude is still running in` and ``Type /exit there, then run `ais switch` again.`` (exit code 75: `echo $?`).
 5. Look at what ais parses: `pgrep -x claude`, then `lsof -a -d cwd -p <pid> -Fn`. Check that the `n` line is this folder and the PID is the one in the refusal message.
 6. `/exit`, then run `ais status` in the same folder. Check it prints `session <id>: last used personal, not open`.
 7. Clean up, in the same shell where `D` is set: `cd ~ && echo "$D"`, check it is the `ais-m5-` folder, then `rm -r "$D"`.
