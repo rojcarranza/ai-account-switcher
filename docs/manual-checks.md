@@ -60,7 +60,7 @@ Result: ____ (date ____)
 
 Expected: switch tool time p95 < 1 s; menu render p95 < 2 s.
 
-Record the transcript count with the result (NFR-PERF's render bound holds for up to 5,000 transcript files): `find ~/.claude/projects -name '*.jsonl' | wc -l`
+Record the transcript count with the result (NFR-PERF's render bound holds for up to 5,000 transcript files): `find ~/.claude/projects -mindepth 2 -maxdepth 2 -name '*.jsonl' | wc -l` (top-level transcripts only, the ones ais scans; subagent files sit deeper)
 
 Result: ____ (switch p95 ____ s, render p95 ____ s, transcripts ____, date ____)
 
