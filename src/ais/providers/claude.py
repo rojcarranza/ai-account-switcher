@@ -244,7 +244,7 @@ def _load_desktop_json(p: Path, root: str, cap: int) -> Any:
 
 
 def _percent(v: Any) -> Optional[float]:
-    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)  # json reads NaN, Infinity
+    ok = isinstance(v, int) and not isinstance(v, bool) or isinstance(v, float) and math.isfinite(v)  # json reads NaN
     return v if ok else None
 
 

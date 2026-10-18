@@ -211,6 +211,8 @@ class UsageTest(DesktopFixture):
         usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": 1e400, "sd": 5}}, '
                                 '{"t": 1%s, "u": {"fh": 1, "sd": 1}}]}' % ("0" * 400))
         self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": 5})
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": 1%s, "sd": 5}}]}' % ("0" * 400))
+        self.assertEqual(self.usage(d), {"t": 100, "fh": 10 ** 400, "sd": 5})  # an int clamps to 100 in the menu
 
     def test_bad_samples_skipped(self):
         d = self.desktop()
