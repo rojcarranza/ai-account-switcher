@@ -168,6 +168,88 @@ class RecordsTest(DesktopFixture):
         self.assertEqual(len(self.records(d)), 1000)
 
 
+def usage_file(data_dir, samples, version=2, raw=None):
+    p = data_dir / "plan-usage-history.json"
+    p.write_text(raw if raw is not None else json.dumps({"version": version, "samples": samples}))
+    return p
+
+
+def sample(t, fh=10, sd=20, **u):
+    u.update({"fh": fh, "sd": sd})
+    return {"t": t, "org": ORG, "u": {k: v for k, v in u.items() if v is not MISSING_KEY}}
+
+
+MISSING_KEY = object()
+
+
+class UsageTest(DesktopFixture):
+    """FR-4.20: the newest usage sample Desktop saved, read only."""
+
+    def usage(self, data_dir):
+        return ClaudeProvider().desktop_usage(data_dir, self.home)
+
+    def test_newest_sample_by_t(self):
+        d = self.desktop("Claude-Work")
+        usage_file(d, [sample(100, 1, 2), sample(300, 69, 68), sample(200, 5, 6)])
+        self.assertEqual(self.usage(d), {"t": 300, "fh": 69, "sd": 68})
+
+    def test_none_means_default_folder(self):
+        usage_file(self.desktop(), [sample(100, 0, 73)])
+        self.assertEqual(self.usage(None), {"t": 100, "fh": 0, "sd": 73})
+
+    def test_missing_or_bad_values_are_none(self):
+        d = self.desktop()
+        usage_file(d, [sample(100, fh=MISSING_KEY, sd=True)])
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": None})
+        usage_file(d, [sample(100, fh="9", sd=68.6)])
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": 68.6})
+
+    def test_non_finite_values_and_huge_times_rejected(self):
+        d = self.desktop()
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": NaN, "sd": Infinity}}]}')
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": None})
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": 1e400, "sd": 5}}, '
+                                '{"t": 1%s, "u": {"fh": 1, "sd": 1}}]}' % ("0" * 400))
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": 5})
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": 1%s, "sd": 5}}]}' % ("0" * 400))
+        self.assertEqual(self.usage(d), {"t": 100, "fh": 10 ** 400, "sd": 5})  # an int clamps to 100 in the menu
+
+    def test_bad_samples_skipped(self):
+        d = self.desktop()
+        usage_file(d, [sample(900, 1, 1, ), "x", {"t": True, "u": {}}, {"t": 999}, {"t": 950, "u": [1]},
+                       sample("1000", 2, 2)])
+        self.assertEqual(self.usage(d), {"t": 900, "fh": 1, "sd": 1})
+
+    def test_missing_or_unexpected_file_gives_none(self):
+        d = self.desktop()
+        self.assertIsNone(self.usage(d))
+        for raw in ("{nope", "[1]", json.dumps({"version": 3, "samples": [sample(1)]}),
+                    json.dumps({"version": 2, "samples": {}}), json.dumps({"version": 2, "samples": []}),
+                    "[" * 200000):
+            with self.subTest(raw=raw[:40]):
+                usage_file(d, None, raw=raw)
+                self.assertIsNone(self.usage(d))
+        self.assertIsNone(self.usage(self.folder("Nope")))
+
+    def test_size_cap_is_2_mb(self):
+        d = self.desktop()
+        p = usage_file(d, [sample(100)] + [sample(1, pad="x" * 1000)] * 1400)  # about 1.4 MB: read
+        self.assertLess(p.stat().st_size, 2 * 1024 * 1024)
+        self.assertEqual(self.usage(d)["t"], 100)
+        usage_file(d, [sample(100)] + [sample(1, pad="x" * 1000)] * 2200)
+        self.assertIsNone(self.usage(d))
+
+    def test_symlink_out_or_fifo_gives_none(self):
+        d = self.desktop()
+        outside = self.home / "outside.json"
+        outside.write_text(json.dumps({"version": 2, "samples": [sample(1)]}))
+        os.symlink(str(outside), str(d / "plan-usage-history.json"))
+        self.assertIsNone(self.usage(d))
+        os.unlink(str(d / "plan-usage-history.json"))
+        os.mkfifo(str(d / "plan-usage-history.json"))
+        self.assertIsNone(self.usage(d))
+
+
 class StatusTest(DesktopFixture):
     def setUp(self):
         super().setUp()
@@ -225,6 +307,12 @@ class StatusTest(DesktopFixture):
         st = self.status()
         self.assertEqual([s["id"] for s in st["recent"]], [UUID])
 
+    def test_usage_per_account(self):
+        usage_file(self.desktop("Claude-Work", OLD_ACCT), [sample(100, 69, 68)])
+        st = self.status()
+        self.assertEqual([a["usage"] for a in st["accounts"]], [None, {"t": 100, "fh": 69, "sd": 68}])
+        self.assertNotIn("usage", self.status(desktop=False)["accounts"][1])
+
     def test_render_end_to_end(self):
         self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
         p = subprocess.run([sys.executable, "-m", "ais", "menu", "render"], stdin=subprocess.DEVNULL,
@@ -233,4 +321,4 @@ class StatusTest(DesktopFixture):
         self.assertEqual(p.returncode, 0, p.stderr)
         lines = p.stdout.split("\n")
         self.assertTrue(any(ln.startswith("--Desktop title · ") for ln in lines), p.stdout)
-        self.assertNotIn("Other sessions (account unknown)", lines)
+        self.assertNotIn("Other sessions (account unknown) | sfimage=list.bullet", lines)

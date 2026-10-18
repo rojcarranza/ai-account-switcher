@@ -475,9 +475,11 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
     # FR-4.19: session ID -> (account, title, lastActivityAt) of the newest Desktop record across accounts
     desk = {}  # type: Dict[str, Tuple[str, str, int]]
     if desktop:
-        for acc in ctx.config.accounts.values():
+        for acc, a in zip(ctx.config.accounts.values(), accounts):
             p = ctx.provider_for(acc)
-            for sid, (title, at) in p.desktop_records(p.desktop_data_dir(acc, ctx.store.home), ctx.store.home).items():
+            data_dir = p.desktop_data_dir(acc, ctx.store.home)
+            a["usage"] = p.desktop_usage(data_dir, ctx.store.home)  # FR-4.20
+            for sid, (title, at) in p.desktop_records(data_dir, ctx.store.home).items():
                 if sid not in desk or at > desk[sid][2]:
                     desk[sid] = (acc.name, title, at)
 

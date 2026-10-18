@@ -91,7 +91,7 @@ Warnings (`Warning: …`) go after the groups, before the last `---`, as today. 
 
 ### Task 4: Usage lines (#57)
 
-**Interfaces:** `Provider.desktop_usage(data_dir, home) -> Optional[dict]` returning `{"t": ms, "fh": Optional[int], "sd": Optional[int]}` from the newest sample (FR-4.20 caps); `gather_status` adds `usage` per account; `menu._header` appends `5h   <bar> N%`, `week <bar> N%`, `as of <age>` or `usage: no sample in the last 24 h`. Tests: bar `round(value/10)` cells (`9` → 1, `73` → 7, `100` → 10), clamping, missing key → `?`, 25 h old → no-sample line, missing file → nothing, privacy shows usage.
+**Interfaces:** `Provider.desktop_usage(data_dir, home) -> Optional[dict]` returning `{"t": ms, "fh": Optional[int], "sd": Optional[int]}` from the newest sample (FR-4.20 caps); `gather_status` adds `usage` per account; `menu._header` appends `5h  N% | image=<png>`, `week  N% | image=<png>`, `updated <age>` or `usage: no sample in the last 24 h`; icons per FR-4.22. Tests: bar fill width and colour (blue, orange from 80, red at 100), clamping, missing key → `?`, 25 h old → no-sample line, missing file → nothing, privacy shows usage.
 
 ### After each task
 Open the PR (`Closes #N`), run `/code-review` until clean, CI green, build the zipapp and run `ais menu render` with a scratch HOME (copied fixtures, real Desktop files only copied read only), leave a hand-over note in the shared notes folder, and hand over to a fresh session. Never merge without the user's approval.

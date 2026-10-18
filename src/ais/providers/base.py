@@ -84,6 +84,10 @@ class Provider(Protocol):
         """Session ID -> (title, last activity ms) from that Desktop data folder (None = default); never raises."""
         ...
 
+    def desktop_usage(self, data_dir: Optional[Path], home: Path) -> Optional[Dict[str, Any]]:
+        """{"t": ms, "fh": 5-hour %, "sd": weekly %} of the newest usage sample in that Desktop folder; never raises."""
+        ...
+
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         """Command that opens a new Desktop instance; AisError(69) when the app is in none of the roots."""
         ...
