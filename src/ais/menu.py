@@ -97,6 +97,7 @@ def _bar_png(value: Optional[float]) -> bytes:
     """FR-4.20: an RGBA PNG bar, filled from the left in proportion to `value`, tagged 144 dpi so it shows at 1x size."""
     v = _clamp(value)
     filled = 0 if v is None else int(round(BAR_W * v / 100))
+    # shortcut: red from 90 is inferred (Claude Desktop shows 85 yellow, 92 red), move it if Claude differs at 86-91
     colour = BAR_BLUE if v is None or v < 80 else BAR_ORANGE if v < 90 else BAR_RED
     r = BAR_H / 2.0
     fill_end = max(r, filled - r)  # the fill's round end; a short fill is the left cap cut at `filled`
