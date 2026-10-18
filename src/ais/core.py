@@ -430,6 +430,7 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
 
 
 RECENT_COUNT = 5
+MENU_RECENT = 30  # FR-4.15: the menu groups more sessions than `ais status` lists
 
 
 def _iso_utc(ts: float) -> Optional[str]:
@@ -439,7 +440,8 @@ def _iso_utc(ts: float) -> Optional[str]:
         return None
 
 
-def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[str]] = None) -> dict:
+def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[str]] = None,
+                  recent_count: int = RECENT_COUNT) -> dict:
     """FR-4.6 dict (plus credential source and error); unreadable or unwritable state becomes a self-check message.
 
     Process-check warnings go to `open_warnings` when given (the menu treats them as a failure), else to stderr.
@@ -456,7 +458,7 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
     cache = Cache(ctx.store, extra.append)
     everything = provider.recent_sessions(sys.maxsize, cache)  # one scan serves both lists
     newest = next((s for s in everything if provider.in_folder(s, ctx.cwd)), None)
-    recent = everything[:RECENT_COUNT]
+    recent = everything[:recent_count]
     found = _open_pids(provider, open_warnings)  # one process scan serves every open check
     try:  # read once; a corrupt state.json leaves every last-used unknown
         sessions = ctx.store.read_json("state.json").get("sessions") or {}

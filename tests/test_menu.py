@@ -1,6 +1,9 @@
 """FR-4.8, FR-4.9, FR-4.11 to FR-4.14, FR-6.5, NFR-PERF: `ais menu render` (SwiftBar)."""
+import calendar
 import copy
+import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -12,6 +15,7 @@ from tests.test_switch import OTHER, UUID, SwitchCase
 
 AIS = "/opt/ais/ais"
 SECOND = "55555555-5555-4555-8555-555555555555"
+NOW = calendar.timegm((2026, 10, 16, 12, 0, 0))
 
 
 def status(**over):
@@ -31,18 +35,23 @@ def status(**over):
 
 class RenderTest(SwitchCase):
     def test_render_from_fixed_status(self):
-        out = menu.render(status(), False, AIS).split("\n")
+        out = menu.render(status(), False, AIS, NOW).split("\n")
         self.assertEqual(out, [
             "Personal",
             "---",
-            "Personal: credential yes",
-            "Work: credential unknown",
-            "---",
-            "• /Users/x/proj — Main task (Personal)",
-            "--Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true"
+            "✓ Personal",
+            "Sessions (1)",
+            "--Main task · 2 h ago",
+            "----/Users/x/proj",
+            "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true"
             % (AIS, UUID),
-            "• /Users/x/other — Second (unknown) · open",
-            "--Quit Claude in /Users/x/other to resume | disabled=true",
+            "---",
+            "Work · credential unknown",
+            "---",
+            "Other sessions (account unknown)",
+            "--Second · open",
+            "----/Users/x/other",
+            "----Quit Claude in /Users/x/other to resume | disabled=true",
             "---",
             "Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false" % AIS,
             "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false" % AIS,
@@ -70,27 +79,28 @@ class RenderTest(SwitchCase):
         s["recent"][0]["folder"] = "/tmp/--a | terminal=true\r\n---"
         s["recent"][0]["last_used"] = None
         s["accounts"][0]["label"] = "Per|sonal\n"
-        out = menu.render(s, False, AIS)
+        out = menu.render(s, False, AIS, NOW)
         lines = out.split("\n")
         for ln in lines:
-            self.assertNotRegex(ln, r"^-+[^-]*(Evil|a )" )
             self.assertFalse(any(unicodedata.category(c).startswith("C") for c in ln), ln)
         # every " | " introduces one of our own actions: 2 resume (unknown last_used), 2 desktop, 1 quit
         acts = [ln.split(" | ")[1].split()[0] for ln in lines if " | " in ln]
         self.assertEqual(sorted(acts), ["bash=" + AIS] * 4 + ["disabled=true"])
-        self.assertEqual(sum(1 for ln in lines if ln.startswith("• ")), 2)
-        self.assertEqual(lines[2], "Personal: credential yes")  # label "Per|sonal\n" cleaned in the account line
-        self.assertEqual([ln for ln in lines if "Evil" in ln or "/tmp" in ln],
-                         [ln for ln in lines if ln.startswith("• /tmp")])
+        self.assertEqual(sum(1 for ln in lines if re.match(r"--[^-]", ln)), 2)
+        self.assertEqual(lines[2], "✓ Personal")  # label "Per|sonal\n" cleaned in the header
+        evil = [ln for ln in lines if "Evil" in ln]
+        self.assertEqual(len(evil), 1)
+        self.assertRegex(evil[0], r"^--x  bash=/bin/rm")  # one level, text kept inert
+        self.assertEqual([ln for ln in lines if "/tmp" in ln], ["----/tmp/--a  terminal=true---"])
 
     def test_open_session_shows_disabled_quit_item(self):
-        out = menu.render(status(), False, AIS)
-        self.assertIn("--Quit Claude in /Users/x/other to resume | disabled=true", out)
+        out = menu.render(status(), False, AIS, NOW)
+        self.assertIn("----Quit Claude in /Users/x/other to resume | disabled=true", out)
         self.assertNotIn(OTHER, out)
 
     def test_privacy_mode_hides_folders_and_titles(self):
-        out = menu.render(status(), True, AIS)
-        self.assertEqual(out.split("\n")[2:6], ["Personal: credential yes", "Work: credential unknown", "---",
+        out = menu.render(status(), True, AIS, NOW)
+        self.assertEqual(out.split("\n")[2:6], ["✓ Personal", "Work · credential unknown", "---",
                                                 "recent sessions: 2, open: 1"])
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
@@ -100,10 +110,46 @@ class RenderTest(SwitchCase):
         s = status()
         s["accounts"][0]["label"] = "--x"
         s["accounts"][1]["label"] = "---"
-        out = menu.render(s, False, AIS).split("\n")
+        out = menu.render(s, False, AIS, NOW).split("\n")
         self.assertEqual(out[0], "x")
-        self.assertEqual(out[2:4], ["x: credential yes", "work: credential unknown"])
-        self.assertTrue(any(ln.startswith("--Resume in work | bash=") for ln in out))
+        self.assertEqual(out[2], "✓ x")
+        self.assertIn("work · credential unknown", out)
+        self.assertTrue(any(ln.startswith("----Resume in work | bash=") for ln in out))
+
+    def test_age_buckets(self):
+        def ago(delta):
+            return menu._ago(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW - delta)), NOW)
+        self.assertEqual(ago(30), "just now")
+        self.assertEqual(ago(-300), "just now")
+        self.assertEqual(ago(59 * 60 + 59), "59 min ago")
+        self.assertEqual(ago(47 * 3600 + 3599), "47 h ago")
+        self.assertEqual(ago(49 * 3600), "2 d ago")
+        self.assertIsNone(menu._ago(None, NOW))
+        self.assertIsNone(menu._ago("yesterday", NOW))
+
+    def test_short_folder_and_title(self):
+        long = "a" * 60
+        self.assertEqual(menu._short_folder("/Users/x/" + long), "/Users/…/" + long)
+        self.assertEqual(menu._short_folder(os.path.expanduser("~") + "/dev/" + long), "~/…/" + long)
+        self.assertEqual(menu._short_folder("/Users/x/proj"), "/Users/x/proj")
+        self.assertEqual(menu._short_title("t" * 60), "t" * 49 + "…")
+        self.assertEqual(menu._short_title("t" * 50), "t" * 50)
+
+    def test_dash_title_does_not_nest(self):
+        s = status()
+        s["recent"][0]["title"] = "--Evil"
+        self.assertIn("--Evil · 2 h ago", menu.render(s, False, AIS, NOW).split("\n"))
+
+    def test_ten_per_group_newest_first(self):
+        s = status()
+        s["recent"] = [{"id": "00000000-0000-4000-8000-%012d" % i, "folder": "/Users/x/p", "title": "T%d" % i,
+                        "last_used": "personal", "open": False, "modified": "2026-10-16T10:00:00Z"}
+                       for i in range(12)]
+        lines = menu.render(s, False, AIS, NOW).split("\n")
+        self.assertIn("Sessions (10)", lines)
+        items = [ln for ln in lines if ln.startswith("--T")]
+        self.assertEqual(items, ["--T%d · 2 h ago" % i for i in range(10)])
+        self.assertNotIn("Other sessions (account unknown)", lines)
 
     def test_run_refuses_to_spawn_after_kill_live(self):
         from ais import procs
@@ -187,13 +233,26 @@ class RenderProcessTest(SwitchCase):
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
         self.assertEqual(lines[:2], ["Work", "---"])
-        self.assertIn("Personal: credential yes", lines)
-        self.assertIn("• ~/proj — Main task (Work)", lines)
-        self.assertTrue(any(ln.startswith("--Resume in Personal | bash=") and "param3=" + UUID in ln
+        self.assertIn("✓ Personal", lines)
+        self.assertTrue(any(ln.startswith("--Main task · ") for ln in lines), out)
+        self.assertIn("----~/proj", lines)
+        self.assertTrue(any(ln.startswith("----Resume in Personal | bash=") and "param3=" + UUID in ln
                             for ln in lines), out)
         self.assertNotIn("auth", self.calls_text())
         self.assertEqual(before, self.files())
         self.assertFalse((self.ais_dir / "ais.log").exists())
+
+    def test_menu_uses_30_recent_status_json_keeps_5(self):
+        for i in range(7):  # 8 sessions with the setUp one: more than 5, fewer than the 10 per group
+            self.add_session("00000000-0000-4000-8000-%012d" % i, self.proj, "T%d" % i, 1000 + i)
+        self.env(FAKE_PGREP_OUT="")
+        code, out, err, _ = self.render()
+        self.assertEqual(code, 0, err)
+        lines = out.split("\n")
+        i = lines.index("Other sessions (account unknown)")
+        self.assertEqual(len([ln for ln in lines[i:] if re.match(r"--[^-]", ln)]), 8, out)
+        _, js, _ = self.ais("status", "--json")
+        self.assertEqual(len(json.loads(js)["recent"]), 5)
 
     def test_render_never_reads_stdin(self):
         code, out, _, took = self.render(timeout=10)
