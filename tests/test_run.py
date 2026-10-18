@@ -136,6 +136,12 @@ class RunTest(TempHomeCase):
         self.assertIn(str(other), st["sessions"])
         self.assertIn(str(self.transcript), st["sessions"])
 
+    def test_run_drops_entries_for_missing_transcripts(self):
+        (self.ais_dir / "state.json").write_text(json.dumps(
+            {"sessions": {str(self.home / "gone.jsonl"): {"account": "work", "at": "t"}}}))
+        self.ais("run")
+        self.assertEqual(list(self.state()["sessions"]), [str(self.transcript)])
+
     def test_run_does_not_record_preexisting_transcript(self):
         old = self.transcript.parent / (OLD + ".jsonl")
         old.parent.mkdir(parents=True)
