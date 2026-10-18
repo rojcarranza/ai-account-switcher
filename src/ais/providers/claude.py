@@ -358,6 +358,8 @@ class ClaudeProvider:
         return "security delete-generic-password -s '%s'" % keychain_service(account.cred_dir)
 
     def desktop_data_dir(self, account: Account, home: Path) -> Optional[Path]:
+        if account.desktop_data_dir is not None:
+            return Path(account.desktop_data_dir)
         if account.is_default:
             return None
         return home.joinpath(*DESKTOP_SUPPORT) / (DESKTOP_PREFIX + account.name)
