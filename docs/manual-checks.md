@@ -60,7 +60,9 @@ Result: ____ (date ____)
 
 Expected: switch tool time p95 < 1 s; menu render p95 < 2 s.
 
-Result: ____ (switch p95 ____ s, render p95 ____ s, date ____)
+Record the transcript count with the result (NFR-PERF's render bound holds for up to 5,000 transcript files): `find ~/.claude/projects -name '*.jsonl' | wc -l`
+
+Result: ____ (switch p95 ____ s, render p95 ____ s, transcripts ____, date ____)
 
 ## M5 NFD folder and process detection (NFR-COST, until macOS CI runs)
 
