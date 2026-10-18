@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ais import procs
-from ais.accounts import Account
+from ais.accounts import Account, same_folder
 from ais.errors import AisError
 from ais.store import EXIT_CONFIG
 from ais.providers.base import Session
@@ -365,8 +365,7 @@ class ClaudeProvider:
 
     def desktop_data_dir(self, account: Account, home: Path) -> Optional[Path]:
         if account.desktop_data_dir is not None:
-            default = os.path.realpath(str(home.joinpath(*DESKTOP_SUPPORT) / DESKTOP_DEFAULT))
-            if os.path.realpath(account.desktop_data_dir) == default:  # that would open a 2nd Desktop on the default profile
+            if same_folder(account.desktop_data_dir, str(home.joinpath(*DESKTOP_SUPPORT) / DESKTOP_DEFAULT)):  # that would open a 2nd Desktop on the default profile
                 raise AisError(EXIT_CONFIG, "account %s: desktop_data_dir %r is the default Desktop folder"
                                % (account.name, account.desktop_data_dir))
             return Path(account.desktop_data_dir)
