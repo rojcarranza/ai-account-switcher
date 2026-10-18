@@ -243,9 +243,11 @@ class ProvidersTest(TempHomeCase):
     def test_version_outside_range_warns(self):
         self.addCleanup(os.environ.pop, "FAKE_CLAUDE_VERSION", None)
         self.assertEqual(self.p.self_check(), [])
+        os.environ["FAKE_CLAUDE_VERSION"] = "2.1.302"
+        self.assertEqual(self.p.self_check(), [])
         os.environ["FAKE_CLAUDE_VERSION"] = "2.1.400"
         self.assertEqual(self.p.self_check(),
-                         ["Claude Code 2.1.400 is outside the tested range 2.1.301-2.1.301"])
+                         ["Claude Code 2.1.400 is outside the tested range 2.1.301-2.1.302"])
         os.environ["FAKE_CLAUDE_VERSION"] = "garbage"
         self.assertEqual(len(self.p.self_check()), 1)
         self.addCleanup(os.environ.pop, "FAKE_CLAUDE_BAD_BYTES", None)
