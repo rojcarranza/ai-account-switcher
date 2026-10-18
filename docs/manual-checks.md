@@ -41,7 +41,7 @@ Result: ____ (date ____)
    python3 -c '
    import json, os
    rows = [json.loads(x) for x in open(os.path.expanduser("~/.config/ais/ais.log"))]
-   t = sorted(r["tool_seconds"] for r in rows if r["command"] == "switch" and r["tool_seconds"] is not None)[-20:]
+   t = sorted([r["tool_seconds"] for r in rows if r["command"] == "switch" and r["tool_seconds"] is not None][-20:])
    print(len(t), "switches, p95", t[int(0.95 * (len(t) - 1))], "s")'
    ```
 
