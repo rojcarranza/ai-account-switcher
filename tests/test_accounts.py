@@ -190,7 +190,9 @@ class AccountsTest(TempHomeCase):
         cases = {"relative": "Library/Application Support/Claude-Work", "tilde": "~/Library/Application Support/X",
                  "outside": str(self.home / "Claude-Work"), "support itself": str(sup),
                  "nested": str(sup / "a" / "b"), "symlink out": str(sup / "Claude-Link"),
-                 "regular file": str(sup / "Claude-File"), "not a string": 5}
+                 "regular file": str(sup / "Claude-File"), "not a string": 5,
+                 "trailing slash": str(sup / "Claude-Work") + "/", "dot": str(sup) + "/./Claude-Work",
+                 "double slash": str(sup) + "//Claude-Work"}
         for label, value in cases.items():
             with self.subTest(label):
                 self.assert_bad_desktop_dir(self.work(desktop_data_dir=value))

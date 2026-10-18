@@ -67,6 +67,8 @@ def _check_desktop_dir(path: Path, name: str, value: object, home: str) -> str:
         raise bad("must be an absolute path")
     if "~" in value:
         raise bad("must not contain ~")
+    if os.path.normpath(value) != value or "//" in value:
+        raise bad("must be a canonical path (no '.', '..', '//' or trailing /)")
     support = os.path.realpath(os.path.join(home, "Library", "Application Support"))
     real = os.path.realpath(value)
     if os.path.dirname(real) != support:
