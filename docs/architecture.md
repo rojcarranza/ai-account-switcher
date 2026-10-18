@@ -76,7 +76,7 @@ flowchart TB
 | Sessions, memory, settings | `~/.claude/`, `~/.claude.json` | Claude Code | ais only reads (realpath-checked) |
 | Credential folders | `~/.claude-accounts/<id>` | Claude Code (Keychain slot key) | ais never writes inside |
 | Credentials | macOS Keychain | Claude Code | ais only runs `claude auth status` or checks the item exists |
-| Desktop data folders | `~/Library/Application Support/Claude-ais-<account>` (default account: Claude.app's own folder) | Claude Desktop | ais only passes the path with `--user-data-dir`; never reads, writes or deletes (ADR-0008) |
+| Desktop data folders | `~/Library/Application Support/Claude-ais-<account>`, or the account's `desktop_data_dir` (default account: Claude.app's own folder) | Claude Desktop | ais passes the path with `--user-data-dir`; the menu reads only `config.json`'s `lastKnownAccountUuid`, the session records and `plan-usage-history.json`; never writes or deletes (ADR-0008, ADR-0009) |
 
 ## Interfaces (link openapi.yaml / *.proto)
 

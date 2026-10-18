@@ -59,6 +59,31 @@ class DesktopTest(SwitchCase):
         self.assertEqual(self.open_calls(), ["open -n -a %s --args --user-data-dir=%s"
                                              % (self.apps / "Claude.app", folder)])
 
+    def test_desktop_data_dir_override_is_launched_and_checked_for_running(self):
+        folder = self.home / "Library" / "Application Support" / "Claude-Work"
+        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+                                    "desktop_data_dir": str(folder)}})
+        code, _, err = self.desktop("work")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_calls(), ["open -n -a %s --args --user-data-dir=%s"
+                                             % (self.apps / "Claude.app", folder)])
+        self.forbid_open()
+        self.env(FAKE_PS_OUT="4243 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s" % folder)
+        code, out, err = self.desktop("work")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), "Work Desktop is already open (PID 4243)")
+
+    def test_override_equal_to_the_default_desktop_folder_exits_78(self):
+        folder = self.home / "Library" / "Application Support" / "Claude"
+        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+                                    "desktop_data_dir": str(folder)}})
+        self.forbid_open()
+        code, _, err = self.desktop("work")
+        self.assertEqual(code, 78)
+        self.assertIn("work", err)
+        self.assertIn("desktop_data_dir", err)
+        self.assertEqual(self.open_calls(), [])
+
     def test_already_running_does_not_launch(self):
         self.forbid_open()
         self.env(FAKE_PS_OUT="4242 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s"

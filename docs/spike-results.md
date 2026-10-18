@@ -118,6 +118,8 @@ Command: `claude --version`; `claude --help`; WebFetch of https://code.claude.co
 Expected: 2.1.301; a few additions to FR-2.2.
 Output: `2.1.301 (Claude Code)`. Tested range = 2.1.301 only, for now.
 
+2026-10-18 re-check for 2.1.302: read-only byte search of `~/.local/share/claude/versions/2.1.302` against 2.1.301. Every name in `BILLING_ENV`, `SETTINGS_KEYS`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` and `CLAUDE_CONFIG_DIR` is present in both. No `ANTHROPIC_*`, `CLAUDE_CODE_USE*`, `CLAUDE_CODE_OAUTH*`, `CLAUDE_CODE_API*` or `AWS_BEARER*` name was added or removed. The Keychain hashing (b) and the live checks (c), (e) were not re-run. Tested range = 2.1.301 to 2.1.302.
+
 FR-2.2 today (requirements.md:123): env `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`; settings `apiKeyHelper`; flag `--settings`.
 
 Additions found (all present in the 2.1.301 binary strings; the first group is also in the public env-vars page):

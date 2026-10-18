@@ -29,7 +29,7 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
 5. No sync across machines; one Mac, local files only.
 6. No storing, reading or copying of passwords or tokens; logins stay in macOS Keychain and the official `claude` login flow.
-7. No usage or limit tracking or forecasting.
+7. No usage or limit forecasting, and no usage fetched by ais itself; the menu only shows the usage samples Claude Desktop already saved for each account (changed 2026-10-18).
 8. No more than 2 accounts tested in the MVP; the design must not block a third.
 
 ## Constraints (budget, cloud, compliance, timeline)
@@ -59,3 +59,4 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 ## Change log
 - 2026-10-16: MVP bullet 4 and non-goal 4 changed to add an optional SwiftBar menu bar plugin (user approved; Claude Switcher-style menu status without a native app).
 - 2026-10-16: MVP bullet 1 and non-goal 1 changed to add one Claude Desktop instance per account (user approved; ais replaces Claude Switcher, which the user will uninstall; design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`).
+- 2026-10-18: non-goal 7 narrowed so the SwiftBar menu can show each account's latest usage sample that Claude Desktop saved, plus session titles and owners from Desktop's own session records, all read only (user approved; ADR-0009, rojcarranza/ai-account-switcher#54 to #57).

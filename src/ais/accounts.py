@@ -18,6 +18,7 @@ class Account:
     label: str
     provider: str
     cred_dir: Optional[str]
+    desktop_data_dir: Optional[str] = None
 
     @property
     def is_default(self) -> bool:
@@ -58,6 +59,25 @@ def _check_cred_dir(path: Path, name: str, cred_dir: object, home: str) -> str:
     return cred_dir
 
 
+def _check_desktop_dir(path: Path, name: str, value: object, home: str) -> str:
+    def bad(rule: str) -> AisError:
+        return AisError(EXIT_CONFIG, "%s: account %s: desktop_data_dir %r %s" % (path, name, value, rule))
+
+    if not isinstance(value, str) or not os.path.isabs(value):
+        raise bad("must be an absolute path")
+    if "~" in value:
+        raise bad("must not contain ~")
+    if os.path.normpath(value) != value or "//" in value:
+        raise bad("must be a canonical path (no '.', '..', '//' or trailing /)")
+    support = os.path.realpath(os.path.join(home, "Library", "Application Support"))
+    real = os.path.realpath(value)
+    if os.path.dirname(real) != support:
+        raise bad("must be a folder directly under %s" % support)
+    if os.path.exists(real) and not os.path.isdir(real):
+        raise bad("must be a folder")
+    return value
+
+
 def load_config(store: Store, providers: Collection[str]) -> Config:
     path = store.dir / "config.json"
     if not path.exists():
@@ -86,6 +106,7 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
 
     home = os.path.realpath(str(store.home))
     accounts = {}  # type: Dict[str, Account]
+    desks = {}  # type: Dict[str, str]  # realpath -> account, one Desktop profile each
     slots = {}  # type: Dict[str, str]  # realpath -> account, one Keychain slot each
     for name in sorted(raw_accounts, key=lambda n: n != default):  # default first: its errors win
         a = raw_accounts[name]
@@ -112,5 +133,14 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
             if real in slots:
                 raise bad("accounts %s and %s share credDir %r" % (slots[real], name, cred_dir))
             slots[real] = name
-        accounts[name] = Account(name, label, provider, cred_dir)
+        desktop = a.get("desktop_data_dir")
+        if desktop is not None:
+            if name == default:
+                raise bad("account %s: the default account must not set desktop_data_dir" % name)
+            desktop = _check_desktop_dir(path, name, desktop, home)
+            real = os.path.realpath(desktop)
+            if real in desks:
+                raise bad("accounts %s and %s share desktop_data_dir %r" % (desks[real], name, desktop))
+            desks[real] = name
+        accounts[name] = Account(name, label, provider, cred_dir, desktop)
     return Config(accounts, default, acks, privacy)

@@ -6,6 +6,7 @@ import os
 import plistlib
 import re
 import shlex
+import stat
 import unicodedata
 import uuid
 from datetime import datetime
@@ -15,12 +16,13 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from ais import procs
 from ais.accounts import Account
 from ais.errors import AisError
+from ais.store import EXIT_CONFIG
 from ais.providers.base import Session
 
 PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
 SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
-TESTED_VERSIONS = ("2.1.301", "2.1.301")  # min, max inclusive (spike (f))
+TESTED_VERSIONS = ("2.1.301", "2.1.302")  # min, max inclusive (spike (f))
 VERSION_TIMEOUT = 10
 AUTH_TIMEOUT = 10
 KEYCHAIN_TIMEOUT = 5
@@ -58,6 +60,10 @@ RISKY_FLAGS = ("--settings", "--bare")
 DESKTOP_APP = "Claude.app"
 DESKTOP_SUPPORT = ("Library", "Application Support")
 DESKTOP_PREFIX = "Claude-ais-"
+DESKTOP_DEFAULT = "Claude"  # the default Desktop data folder, under DESKTOP_SUPPORT
+DESKTOP_MAX_FILES = 1000
+DESKTOP_MAX_BYTES = 1024 * 1024
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 DESKTOP_PS_TIMEOUT = 5
 # the executable is the first word (a path may hold spaces, never " /"); never "Claude Helper (…)"
 _DESKTOP_MAIN = re.compile(r"/(?:[^ ]| (?!/))*\.app/Contents/MacOS/Claude(?= -|$)")
@@ -358,9 +364,63 @@ class ClaudeProvider:
         return "security delete-generic-password -s '%s'" % keychain_service(account.cred_dir)
 
     def desktop_data_dir(self, account: Account, home: Path) -> Optional[Path]:
+        if account.desktop_data_dir is not None:
+            default = os.path.realpath(str(home.joinpath(*DESKTOP_SUPPORT) / DESKTOP_DEFAULT))
+            if os.path.realpath(account.desktop_data_dir) == default:  # that would open a 2nd Desktop on the default profile
+                raise AisError(EXIT_CONFIG, "account %s: desktop_data_dir %r is the default Desktop folder"
+                               % (account.name, account.desktop_data_dir))
+            return Path(account.desktop_data_dir)
         if account.is_default:
             return None
         return home.joinpath(*DESKTOP_SUPPORT) / (DESKTOP_PREFIX + account.name)
+
+    def desktop_records(self, data_dir: Optional[Path], home: Path) -> Dict[str, Tuple[str, int]]:
+        """FR-4.19: session ID -> (title, lastActivityAt ms) from Desktop's records; every problem is skipped."""
+        support = home.joinpath(*DESKTOP_SUPPORT)
+        base = data_dir if data_dir is not None else support / DESKTOP_DEFAULT
+        out = {}  # type: Dict[str, Tuple[str, int]]
+        root = os.path.realpath(str(base))
+
+        def load(p: Path) -> Any:
+            try:
+                if not os.path.realpath(str(p)).startswith(root + os.sep):  # a link pointing out
+                    return None
+                st = os.stat(str(p))
+                if not stat.S_ISREG(st.st_mode) or st.st_size > DESKTOP_MAX_BYTES:  # a FIFO would block
+                    return None
+                with open(str(p), encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
+                return None
+
+        try:
+            if os.path.dirname(root) != os.path.realpath(str(support)):
+                return out
+            cfg = load(base / "config.json")
+            acct = cfg.get("lastKnownAccountUuid") if isinstance(cfg, dict) else None
+            if not isinstance(acct, str) or not _UUID_RE.fullmatch(acct):  # it goes into a path
+                return out
+            dated = []  # type: List[Tuple[float, str, Path]]
+            for p in base.glob("claude-code-sessions/%s/*/local_*.json" % acct):
+                try:
+                    dated.append((os.stat(str(p)).st_mtime, str(p), p))
+                except OSError:
+                    continue
+            dated.sort(key=lambda t: (-t[0], t[1]))  # the cap keeps the newest files
+            for _, _, p in dated[:DESKTOP_MAX_FILES]:
+                rec = load(p)
+                if not isinstance(rec, dict) or rec.get("isArchived") is True:
+                    continue
+                sid = rec.get("cliSessionId")
+                if not isinstance(sid, str):
+                    continue
+                title, at = rec.get("title"), rec.get("lastActivityAt")
+                at = at if isinstance(at, int) and not isinstance(at, bool) else 0
+                if sid not in out or at > out[sid][1]:
+                    out[sid] = (title if isinstance(title, str) else "", at)
+        except (OSError, ValueError, RecursionError):  # a folder that vanishes or cannot be listed: nothing to show
+            pass
+        return out
 
     def desktop_launch_command(self, data_dir: Optional[Path], app_roots: Sequence[Path]) -> List[str]:
         for root in app_roots:
