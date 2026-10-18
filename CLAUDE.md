@@ -55,8 +55,8 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   graph. No graph at all: build it with `/graphify .` first.
 - After changing docs, run `/graphify . --update`.
 - Feature PRs never stage `graphify-out/` (parallel branches would conflict
-  on graph.json). Refresh the committed graph on its own PR when it falls
-  behind main.
+  on graph.json): run `git restore graphify-out` before committing. Refresh
+  the committed graph on its own PR when it falls behind main.
 
 ## When compacting
 - Keep: current task, modified files, test commands, open G-1 findings.
