@@ -204,6 +204,14 @@ class UsageTest(DesktopFixture):
         usage_file(d, [sample(100, fh="9", sd=68.6)])
         self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": 68.6})
 
+    def test_non_finite_values_and_huge_times_rejected(self):
+        d = self.desktop()
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": NaN, "sd": Infinity}}]}')
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": None})
+        usage_file(d, None, raw='{"version": 2, "samples": [{"t": 100, "u": {"fh": 1e400, "sd": 5}}, '
+                                '{"t": 1%s, "u": {"fh": 1, "sd": 1}}]}' % ("0" * 400))
+        self.assertEqual(self.usage(d), {"t": 100, "fh": None, "sd": 5})
+
     def test_bad_samples_skipped(self):
         d = self.desktop()
         usage_file(d, [sample(900, 1, 1, ), "x", {"t": True, "u": {}}, {"t": 999}, {"t": 950, "u": [1]},

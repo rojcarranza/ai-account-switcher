@@ -2,6 +2,7 @@
 import getpass
 import hashlib
 import json
+import math
 import os
 import plistlib
 import re
@@ -243,7 +244,8 @@ def _load_desktop_json(p: Path, root: str, cap: int) -> Any:
 
 
 def _percent(v: Any) -> Optional[float]:
-    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)  # json reads NaN, Infinity
+    return v if ok else None
 
 
 def _desktop_pid(ps_output: str, data_dir: Optional[Path]) -> Optional[int]:
@@ -448,7 +450,7 @@ class ClaudeProvider:
         for smp in doc["samples"]:
             t = smp.get("t") if isinstance(smp, dict) else None
             u = smp.get("u") if isinstance(smp, dict) else None
-            if not isinstance(t, int) or isinstance(t, bool) or not isinstance(u, dict):
+            if not isinstance(t, int) or isinstance(t, bool) or abs(t) >= 2 ** 53 or not isinstance(u, dict):
                 continue
             if best is None or t > best["t"]:
                 best = {"t": t, "fh": _percent(u.get("fh")), "sd": _percent(u.get("sd"))}

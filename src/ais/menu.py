@@ -3,12 +3,12 @@ import base64
 import calendar
 import os
 import re
+import struct
 import sys
 import threading
 import time
 import unicodedata
 import uuid
-import struct
 import zlib
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 
