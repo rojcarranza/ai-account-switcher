@@ -316,6 +316,12 @@ class UsageRenderTest(SwitchCase):
         edge = menu.render(with_usage({"t": (NOW - 24 * 3600) * 1000, "fh": 9, "sd": 9}), False, AIS, NOW)
         self.assertIn("updated 24 h ago", edge)
 
+    def test_5h_value_older_than_5_h_shows_0(self):
+        for age, five in ((5 * 3600 + 1, "5h  0%"), (5 * 3600, "5h  77%")):
+            with self.subTest(age=age):
+                out = menu.render(with_usage({"t": (NOW - age) * 1000, "fh": 77, "sd": 69}), False, AIS, NOW).split("\n")
+                self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0]], [five, "week  69%"])
+
     def test_far_future_sample_time_does_not_break_the_menu(self):
         out = menu.render(with_usage({"t": 10 ** 22, "fh": 1, "sd": 2}), False, AIS, NOW).split("\n")
         self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0], out[5]], ["5h  1%", "week  2%", "Sessions (1) | sfimage=list.bullet"])

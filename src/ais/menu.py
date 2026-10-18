@@ -87,6 +87,7 @@ BAR_BLUE = (10, 132, 255, 255)
 BAR_ORANGE = (255, 159, 10, 255)
 BAR_RED = (255, 69, 58, 255)
 USAGE_MAX_AGE = 24 * 3600
+FIVE_HOURS = 5 * 3600
 
 
 def _clamp(value: Optional[float]) -> Optional[int]:
@@ -139,7 +140,8 @@ def _usage(usage: Optional[dict], now: float) -> List[str]:
         return ["usage: no sample in the last 24 h"]
     out = []
     for name, key in (("5h", "fh"), ("week", "sd")):
-        v = _clamp(usage[key])
+        # a 5-hour window saved more than 5 h ago has ended since
+        v = 0 if key == "fh" and now - t > FIVE_HOURS else _clamp(usage[key])
         # SwiftBar ignores the PNG's dpi and shrinks the image unless width and height are given
         out.append("%s  %s | image=%s width=120 height=8" % (name, "?" if v is None else "%d%%" % v,
                                                              base64.b64encode(_bar_png(v)).decode("ascii")))
