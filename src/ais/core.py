@@ -380,10 +380,11 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
                             dry_run)
     last = _last_used(ctx, s)
     acc = _target(ctx, account, last or ctx.config.default)
-    if last is None and account is None:  # FR-3.1: no record means a plain `claude`, on the default account
+    if last is None:  # FR-3.1: no record means a plain `claude`, on the default account
         last = ctx.config.default  # so FR-2.8 still asks before the transcript moves to the other account
-        print("ais: no record of this session; assuming it last ran on %s"
-              % ctx.config.accounts[last].label, file=sys.stderr)
+        if acc.name != last:  # the FR-2.8 prompt below names this assumed account
+            print("ais: no record of this session; assuming it last ran on %s"
+                  % ctx.config.accounts[last].label, file=sys.stderr)
     provider = ctx.provider_for(acc)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)

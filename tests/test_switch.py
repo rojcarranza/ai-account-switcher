@@ -178,6 +178,30 @@ class SwitchTest(SwitchCase):
         self.assertIsNone(self.argv())
         self.assertEqual(self.snapshots(), [])
 
+    def test_switch_named_account_unknown_last_used_asks_ack(self):
+        # the menu's Resume click names the account: an unrecorded session still counts as the default's
+        for args in (("switch", "work"), ("switch", "--session", UUID, "work")):
+            with self.subTest(args=args):
+                code, _, err = self.ais(*args, stdin="")  # EOF declines
+                self.assertEqual(code, 65)
+                self.assertIn("will be sent under Work", err)
+                self.assertIsNone(self.argv())
+                self.assertIn("assuming it last ran on Personal", err)
+
+    def test_switch_named_default_account_unknown_last_used_no_ack(self):
+        code, _, err = self.ais("switch", "personal", stdin="")  # FR-3.2: same account, no prompt
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=<unset>")
+        self.assertNotIn("will be sent under", err)
+        self.assertNotIn("assuming it last ran on", err)
+
+    def test_switch_named_account_unknown_last_used_three_accounts_asks_ack(self):
+        self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
+                                                    "credDir": str(self.home / ".claude-extra")}})
+        code, _, err = self.ais("switch", "extra", stdin="")
+        self.assertEqual(code, 65)
+        self.assertIn("used under Personal) will be sent under Extra", err)
+
     def test_switch_unknown_last_used_three_accounts_64_without_note(self):
         self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
                                                     "credDir": str(self.home / ".claude-extra")}})
@@ -206,6 +230,7 @@ class SwitchTest(SwitchCase):
             self.add_session(sid, self.proj, "task %d" % n, 3000 + n)
         self.add_session(OTHER, self.home / "elsewhere", "elsewhere task", 9000)
         self.last_used("personal", self.projects / "p" / (ids[5] + ".jsonl"))
+        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
         code, _, err = self.ais("switch", "--pick", "work", stdin="2\n")
         self.assertEqual(code, 0, err)
         listed = [x for x in err.splitlines() if x[:1].isdigit()]
@@ -231,6 +256,7 @@ class SwitchTest(SwitchCase):
         other = self.home / "other dir"
         other.mkdir()
         self.add_session(OTHER, other, "other task", 1000)
+        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
         code, _, err = self.ais("switch", "--session", OTHER, "work")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.argv(), ["--resume", OTHER])
@@ -286,6 +312,7 @@ class SwitchTest(SwitchCase):
 
     def test_spawn_failure_restores_state_and_logs_error(self):
         os.environ["PATH"] = str(self.home / "nobin") + os.pathsep + "/usr/bin:/bin"
+        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
         self.last_used("work")
         before = (self.ais_dir / "state.json").read_text()
         code, _, err = self.ais("switch", "work")
