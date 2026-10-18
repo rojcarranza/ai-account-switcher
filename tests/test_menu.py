@@ -135,6 +135,11 @@ class RenderTest(SwitchCase):
         self.assertEqual(menu._short_title("t" * 60), "t" * 49 + "…")
         self.assertEqual(menu._short_title("t" * 50), "t" * 50)
 
+    def test_short_folder_with_nothing_to_elide_stays_whole(self):
+        long = "a" * 60
+        self.assertEqual(menu._short_folder("/" + long), "/" + long)
+        self.assertEqual(menu._short_folder("/Users/" + long), "/Users/" + long)
+
     def test_dash_title_does_not_nest(self):
         s = status()
         s["recent"][0]["title"] = "--Evil"

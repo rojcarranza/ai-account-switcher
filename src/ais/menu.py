@@ -67,8 +67,8 @@ def _ago(modified: Optional[str], now: float) -> Optional[str]:
 def _short_folder(folder: str) -> str:
     """FR-4.17: `~/…` for the home folder, and `<first>/…/<last>` when longer than 48 characters."""
     f = _folder(folder)
-    if len(f) > 48:
-        parts = f.split("/")
+    parts = f.split("/")
+    if len(f) > 48 and len([p for p in parts if p]) > 2:  # something between first and last to elide
         first = parts[0] or "/" + parts[1]  # "/Users" for an absolute path
         f = first + "/…/" + parts[-1]
     return f
