@@ -146,6 +146,19 @@ class RenderTest(SwitchCase):
         self.assertEqual(menu._short_folder("/" + long), "/" + long)
         self.assertEqual(menu._short_folder("/Users/" + long), "/Users/" + long)
 
+    def test_running_line_first_in_config_order(self):
+        """FR-4.18"""
+        for privacy in (False, True):
+            with self.subTest(privacy=privacy):
+                out = menu.render(status(running=["personal", "work"]), privacy, AIS, NOW).split("\n")
+                self.assertEqual(out[:3], ["| sfimage=gauge.medium", "---", "Running: Personal, Work"])
+        out = menu.render(status(running=["work"]), False, AIS, NOW).split("\n")
+        self.assertEqual(out[2], "Running: Work")
+
+    def test_no_running_line_when_none_running(self):
+        for st in (status(running=[]), status()):
+            self.assertFalse(any(ln.startswith("Running:") for ln in menu.render(st, False, AIS, NOW).split("\n")))
+
     def test_dash_title_does_not_nest(self):
         s = status()
         s["recent"][0]["title"] = "--Evil"
@@ -431,6 +444,16 @@ class RenderProcessTest(SwitchCase):
         self.assertEqual(code, 0)
         self.assertLess(took, 8)
         self.assertTrue(out.startswith("| sfimage=gauge.medium\n"), out)
+
+    def test_render_with_hung_desktop_ps_shows_menu_without_running_line(self):
+        """FR-4.18: a ps that does not answer counts as failed, not as a menu failure."""
+        self.last_used("personal")
+        self.env(FAKE_PGREP_OUT="", FAKE_PS_SLEEP="30")
+        code, out, err, _ = self.render()
+        self.assertEqual(code, 0, err)
+        self.assertIn("Personal | sfimage=person.crop.circle", out.split("\n"), out)
+        self.assertNotIn("Running:", out)
+        self.assertNotIn("ais ⚠", out)
 
     def test_render_with_hung_lsof_finishes_in_5s(self):
         child = self.home / "lsof.child"

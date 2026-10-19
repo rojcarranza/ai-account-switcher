@@ -67,6 +67,7 @@ DESKTOP_MAX_BYTES = 1024 * 1024
 DESKTOP_USAGE_MAX_BYTES = 2 * 1024 * 1024  # FR-4.20
 _UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 DESKTOP_PS_TIMEOUT = 5
+MENU_PS_TIMEOUT = 1  # FR-4.18: with the 3 s process check, stays inside the menu deadline
 # the executable is the first word (a path may hold spaces, never " /"); never "Claude Helper (…)"
 _DESKTOP_MAIN = re.compile(r"/(?:[^ ]| (?!/))*\.app/Contents/MacOS/Claude(?= -|$)")
 _USER_DATA_DIR = "--user-data-dir="
@@ -466,13 +467,23 @@ class ClaudeProvider:
             return cmd if data_dir is None else cmd + ["--args", _USER_DATA_DIR + str(data_dir)]
         raise AisError(69, "Claude Desktop not found in " + " or ".join(str(r) for r in app_roots))
 
-    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+    def _desktop_ps(self, timeout: float = DESKTOP_PS_TIMEOUT) -> str:
         rc, out, warn, err = procs.run(["ps", "-x", "-ww", "-o", "pid=,args="],  # -x: Desktop has no terminal
-                                       DESKTOP_PS_TIMEOUT, stderr=True)
+                                       timeout, stderr=True)
         if warn or rc != 0:
             raise AisError(69, "cannot check for a running Claude Desktop: "
                            + (warn or err.strip() or "ps exited %s" % rc))
-        return _desktop_pid(out, data_dir)
+        return out
+
+    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+        return _desktop_pid(self._desktop_ps(), data_dir)
+
+    def desktop_running(self, data_dirs: Sequence[Optional[Path]]) -> List[bool]:
+        try:
+            out = self._desktop_ps(MENU_PS_TIMEOUT)
+        except AisError:  # FR-4.18: a failed ps shows nothing running and adds no warning
+            return [False] * len(data_dirs)
+        return [_desktop_pid(out, d) is not None for d in data_dirs]
 
     def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""

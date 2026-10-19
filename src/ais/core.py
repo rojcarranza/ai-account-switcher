@@ -474,10 +474,12 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
 
     # FR-4.19: session ID -> (account, title, lastActivityAt) of the newest Desktop record across accounts
     desk = {}  # type: Dict[str, Tuple[str, str, int]]
+    running = []  # type: List[str]
     if desktop:
-        for acc, a in zip(ctx.config.accounts.values(), accounts):
+        dirs = [ctx.provider_for(acc).desktop_data_dir(acc, ctx.store.home) for acc in ctx.config.accounts.values()]
+        running = [acc.name for acc, up in zip(ctx.config.accounts.values(), provider.desktop_running(dirs)) if up]
+        for acc, a, data_dir in zip(ctx.config.accounts.values(), accounts, dirs):
             p = ctx.provider_for(acc)
-            data_dir = p.desktop_data_dir(acc, ctx.store.home)
             a["usage"] = p.desktop_usage(data_dir, ctx.store.home)  # FR-4.20
             for sid, (title, at) in p.desktop_records(data_dir, ctx.store.home).items():
                 if sid not in desk or at > desk[sid][2]:
@@ -491,7 +493,7 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
         return t if t.strip() else s.title
 
     messages = list(dict.fromkeys(provider.self_check() + extra))  # unique, first-seen order
-    return {
+    out = {
         "accounts": accounts,
         "session": None if newest is None else {"id": newest.id, "last_used": _last_used(ctx, newest, sessions),
                                                 "open": is_open(newest)},
@@ -500,6 +502,9 @@ def gather_status(ctx: Context, cache_only: bool, open_warnings: Optional[List[s
                     "modified": _iso_utc(s.modified)} for s in recent],
         "self_check": {"ok": not messages, "messages": messages},
     }
+    if desktop:
+        out["running"] = running  # FR-4.18; `ais status --json` keeps its keys
+    return out
 
 
 def cmd_status(ctx: Context, as_json: bool) -> int:
