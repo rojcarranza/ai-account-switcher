@@ -140,6 +140,26 @@ class UseTest(TempHomeCase):
         self.assertEqual(self.argv_log.read_text().splitlines(), ["-c"])  # ais run would refuse -c
         self.assertEqual(self.slot(), "slot=" + self.work)  # the exported slot still applies
 
+    def test_claude_with_args_records_window_account(self):
+        # #79: args ais run accepts go through it, so `ais switch` knows the session ran on work
+        transcript = self.home / ".claude" / "projects" / "x" / "44444444-4444-4444-8444-444444444444.jsonl"
+        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+                       'FAKE_CLAUDE_CWD="$PWD" FAKE_CLAUDE_WRITE_TRANSCRIPT=%s claude --model opus; echo "rc=$?"\n'
+                       % shlex.quote(str(transcript)))
+        self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
+        self.assertEqual(self.argv_log.read_text().splitlines(), ["--model", "opus"])
+        self.assertEqual(self.slot(), "slot=" + self.work)
+        state = json.loads((self.ais_dir / "state.json").read_text())
+        self.assertEqual(state["sessions"][str(transcript)]["account"], "work")
+
+    def test_claude_with_args_billing_risk_is_refused(self):
+        # FR-2.2: a billing risk refuses `claude <args>` as it refuses a plain `claude`
+        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+                       'export ANTHROPIC_API_KEY=x\nclaude --model opus; echo "rc=$?"\n')
+        self.assertEqual(r.stdout.splitlines(), ["rc=77"], r.stderr)
+        self.assertIn("ANTHROPIC_API_KEY", r.stderr)
+        self.assertIsNone(self.slot())
+
     def test_claude_without_ais_use_is_untouched(self):
         r = self.shell('claude; echo "rc=$?"\n')
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
