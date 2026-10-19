@@ -34,6 +34,13 @@ def _parser() -> argparse.ArgumentParser:
     switch.add_argument("--session")
     switch.add_argument("--dry-run", action="store_true")
     switch.add_argument("--allow-api-key", action="store_true")
+    use = sub.add_parser("use", help="pick the account for this terminal window and start claude",
+                         allow_abbrev=False)
+    use.add_argument("account", nargs="?")  # missing -> print this window's account
+    how = use.add_mutually_exclusive_group()
+    how.add_argument("--shell", action="store_true", help="print the shell commands (used by ais shell-init)")
+    how.add_argument("--copy", action="store_true", help="copy `ais use <account>` to the clipboard")
+    sub.add_parser("shell-init", help="print the shell functions for ~/.zshrc", allow_abbrev=False)
     desktop = sub.add_parser("desktop", help="open Claude Desktop for an account", allow_abbrev=False)
     desktop.add_argument("account", nargs="?")  # missing -> Config.get lists the names
     desktop.add_argument("--dry-run", action="store_true")
@@ -86,6 +93,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise AisError(EXIT_USAGE, "--pick and --session cannot be combined")
             return core.cmd_switch(_context(started), ns.account, ns.pick, ns.session,
                                    ns.allow_api_key, ns.dry_run)
+        if ns.command == "use":
+            if (ns.shell or ns.copy) and ns.account is None:
+                raise AisError(EXIT_USAGE, "--shell and --copy need an account")
+            return core.cmd_use(_context(started), ns.account, ns.shell, ns.copy)
+        if ns.command == "shell-init":  # needs no config
+            return core.cmd_shell_init(_context(started, Config({}, "", {}, False), cwd_optional=True))
         if ns.command == "setup":  # no config exists yet: a placeholder one
             return core.cmd_setup(_context(started, Config({}, "", {}, False)), ns.dry_run)
         if ns.command == "uninstall":  # works with a broken or missing config

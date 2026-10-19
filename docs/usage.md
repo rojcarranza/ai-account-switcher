@@ -24,6 +24,16 @@ ais run work
 
 Arguments after `--` go to `claude`: `ais run work -- --model opus`.
 
+## Pick an account per terminal window
+
+Add this line to `~/.zshrc` once, then open a new terminal:
+
+```bash
+eval "$(ais shell-init)"
+```
+
+In any terminal app (Terminal, Ghostty, Orca), `ais use work` sets that window to the work account and starts `claude` on it. After that, a plain `claude` in the same window uses work too. Other windows keep their own account. `ais use` on its own prints the account of the window. A window you never set uses the default account.
+
 ## Claude Desktop per account
 
 ```bash

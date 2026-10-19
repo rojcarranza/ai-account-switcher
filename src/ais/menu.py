@@ -208,6 +208,9 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     for a in accounts:
         out.append("Open %s Terminal | %s param1=run param2=%s terminal=true sfimage=terminal"
                    % (labels[a["name"]], bash, _name(a["name"])))
+    for a in accounts:  # FR-4.24: the command to paste into any terminal app
+        out.append('Copy "ais use %s" | %s param1=use param2=--copy param3=%s terminal=false sfimage=doc.on.clipboard'
+                   % (_name(a["name"]), bash, _name(a["name"])))
     return "\n".join(out)
 
 

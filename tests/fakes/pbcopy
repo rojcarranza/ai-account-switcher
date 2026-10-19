@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fake pbcopy for tests: writes stdin to $FAKE_PBCOPY_OUT.
+cat > "${FAKE_PBCOPY_OUT:?}"

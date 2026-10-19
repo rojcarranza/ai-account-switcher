@@ -55,6 +55,10 @@ class RenderTest(SwitchCase):
             "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS,
             "Open Personal Terminal | bash=%s param1=run param2=personal terminal=true sfimage=terminal" % AIS,
             "Open Work Terminal | bash=%s param1=run param2=work terminal=true sfimage=terminal" % AIS,
+            'Copy "ais use personal" | bash=%s param1=use param2=--copy param3=personal terminal=false'
+            ' sfimage=doc.on.clipboard' % AIS,
+            'Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+            ' sfimage=doc.on.clipboard' % AIS,
         ])
 
     def test_render_bar_is_ais_without_sessions(self):
@@ -83,13 +87,13 @@ class RenderTest(SwitchCase):
         lines = out.split("\n")
         for ln in lines:
             self.assertFalse(any(unicodedata.category(c).startswith("C") for c in ln), ln)
-        # every " | " introduces one of our own actions: 1 resume, 2 desktop, 2 terminal,
+        # every " | " introduces one of our own actions: 1 resume, 2 desktop, 2 terminal, 2 copy,
         # or only a fixed icon (FR-4.22): 2 headers, 1 Sessions
         params = [ln.split(" | ")[1] for ln in lines if " | " in ln]
         icons = [p for p in params if re.fullmatch(r"sfimage=(person\.crop\.circle|list\.bullet)", p)]
         self.assertEqual(len(icons), 3)
         acts = [p.split()[0] for p in params if p not in icons]
-        self.assertEqual(sorted(acts), ["bash=" + AIS] * 5)
+        self.assertEqual(sorted(acts), ["bash=" + AIS] * 7)
         self.assertEqual(sum(1 for ln in lines if re.match(r"--[^-]", ln)), 1)
         self.assertEqual(lines[2], "Personal | sfimage=person.crop.circle")  # label "Per|sonal\n" cleaned in the header
         evil = [ln for ln in lines if "Evil" in ln]
@@ -342,7 +346,9 @@ class IconTest(SwitchCase):
                      " sfimage=play.fill" % (AIS, UUID),
                      "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer"
                      % AIS,
-                     "Open Work Terminal | bash=%s param1=run param2=work terminal=true sfimage=terminal" % AIS):
+                     "Open Work Terminal | bash=%s param1=run param2=work terminal=true sfimage=terminal" % AIS,
+                     'Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+                     ' sfimage=doc.on.clipboard' % AIS):
             with self.subTest(line=line):
                 self.assertIn(line, lines)
 
