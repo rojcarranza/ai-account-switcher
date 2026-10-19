@@ -180,6 +180,17 @@ class SwitchTest(SwitchCase):
         self.assertEqual(self.slot(), "slot=<unset>")
         self.assertIn("assuming it last ran on Work", err)
 
+    def test_switch_named_account_unknown_last_used_follows_terminal_account(self):
+        # FR-3.2 with #79: naming the assumed account resumes there without the prompt
+        self.env(AIS_ACCOUNT="work")
+        code, _, err = self.ais("switch", "personal", stdin="")  # EOF declines work->personal, records nothing
+        self.assertEqual(code, 65)
+        self.assertIn("used under Work) will be sent under Personal", err)
+        code, _, err = self.ais("switch", "work", stdin="")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertNotIn("will be sent under", err)
+
     def test_switch_unknown_last_used_ignores_unconfigured_terminal_account(self):
         self.env(AIS_ACCOUNT="gone")
         self.write_config(acks={"personal->work": "2026-10-01"})
