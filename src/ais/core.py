@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -268,6 +269,81 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
     return rc
 
 
+WINDOW_ENV = "AIS_ACCOUNT"  # FR-3.16: the account `ais use` set for this terminal window
+
+
+def _window_account(ctx: Context) -> Optional[str]:
+    """The configured account `ais use` set for this terminal, or None."""
+    name = ctx.env.get(WINDOW_ENV, "")
+    return name if name in ctx.config.accounts else None
+
+
+# FR-3.16: `local` then assign, so a failed `ais use --shell` is not hidden by local's own status;
+# an alias would win over the functions (and `name() {` fails to parse under one), so drop both aliases
+# #79: `claude <args>` goes through `ais run` when it takes the args, or to show a billing refusal (FR-2.2)
+SHELL_INIT = """unalias ais %(cmd)s 2>/dev/null
+function ais {
+  if [ "$1" = use ] && [ $# -eq 2 ] && [ "${2#-}" = "$2" ]; then
+    local _ais_env
+    _ais_env=$(command ais use --shell "$2") || return
+    eval "$_ais_env"
+    command ais run "$2"
+  else
+    command ais "$@"
+  fi
+}
+function %(cmd)s {
+  if [ -n "${%(var)s:-}" ] && [ $# -eq 0 ]; then
+    command ais run "$%(var)s"
+  elif [ -n "${%(var)s:-}" ]; then
+    command ais run --dry-run "$%(var)s" -- "$@" >/dev/null 2>&1
+    case $? in
+      0|%(billing)d) command ais run "$%(var)s" -- "$@" ;;
+      *) command %(cmd)s "$@" ;;
+    esac
+  else
+    command %(cmd)s "$@"
+  fi
+}
+"""
+
+
+def cmd_shell_init(ctx: Context) -> int:
+    cmd = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None)).start_command([])[0]
+    print(SHELL_INIT % {"cmd": cmd, "var": WINDOW_ENV, "billing": guards.EXIT_BILLING}, end="")
+    return 0
+
+
+def cmd_use(ctx: Context, account: Optional[str], shell: bool, copy: bool) -> int:
+    """FR-3.17 to FR-3.20."""
+    if account is None:
+        name = _window_account(ctx)
+        if name is not None:
+            print("This terminal: " + ctx.config.accounts[name].label)
+        else:
+            print("This terminal: %s (default)" % ctx.config.get(ctx.config.default).label)
+        return 0
+    acc = ctx.config.get(account)
+    if copy:
+        try:
+            subprocess.run(["pbcopy"], input="ais use " + acc.name, encoding="utf-8", check=True,
+                           timeout=OPEN_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise AisError(69, "cannot copy to the clipboard: %s" % e)
+        return 0
+    if not shell:
+        guards.print_warnings(['this terminal was not set; add  eval "$(ais shell-init)"  to ~/.zshrc '
+                               "so `ais use` sets it"])
+        return cmd_run(ctx, acc.name, [], False, False)
+    env, _ = ctx.provider_for(acc).env_for(acc, ctx.env)  # its warnings are about the unsets printed here
+    lines = ["unset " + k for k in sorted(ctx.env) if k not in env]
+    lines += ["export %s=%s" % (k, shlex.quote(v)) for k, v in sorted(env.items()) if ctx.env.get(k) != v]
+    lines.append("export %s=%s" % (WINDOW_ENV, shlex.quote(acc.name)))
+    print("\n".join(lines))
+    print("This terminal: " + acc.label, file=sys.stderr)
+    return 0
+
+
 def _clean(text: str) -> str:
     """Transcript text is untrusted: drop control and format characters before it reaches the terminal."""
     return "".join(c for c in text if not unicodedata.category(c).startswith("C"))
@@ -379,12 +455,16 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
     s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session,
                             dry_run)
     last = _last_used(ctx, s)
-    acc = _target(ctx, account, last or ctx.config.default)
-    if last is None:  # FR-3.1: no record means a plain `claude`, on the default account
-        last = ctx.config.default  # so FR-2.8 still asks before the transcript moves to the other account
+    # FR-3.1: no record means a plain `claude`, on this terminal's `ais use` account or else the default
+    window = _window_account(ctx)
+    assumed = window or ctx.config.default
+    acc = _target(ctx, account, last or assumed)
+    if last is None:
+        last = assumed  # so FR-2.8 still asks before the transcript moves to the other account
         if acc.name != last:  # the FR-2.8 prompt below names this assumed account
-            print("ais: no record of this session; assuming it last ran on %s"
-                  % ctx.config.accounts[last].label, file=sys.stderr)
+            print("ais: no record of this session; assuming it last ran on %s%s" % (
+                ctx.config.accounts[last].label, "" if window is None else
+                " (set by `ais use` in this terminal; name the account to resume elsewhere)"), file=sys.stderr)
     provider = ctx.provider_for(acc)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)
@@ -677,6 +757,8 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     if not on_path:
         print("\nAdd this line to ~/.zshrc so your shell finds ais:\n  " + 'export PATH="$HOME/.local/bin:$PATH"'
               + "\nIt puts ~/.local/bin, where ais is installed, on your PATH.")
+    print('\nTo pick an account per terminal window with `ais use <account>`, add this line to ~/.zshrc:\n  '
+          'eval "$(ais shell-init)"')
     print("\n" + provider.shared_data_note)
     return 0
 
@@ -784,6 +866,7 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
                      % provider.desktop_data_dir(placeholder, home))
     steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
                  "and nothing else in ~/.local/bin needs it (claude itself lives there)")
+    steps.append('~/.zshrc: remove the line  eval "$(ais shell-init)"  if you added it')
 
     def manual() -> None:
         print("\nManual steps (ais never touches these):")
