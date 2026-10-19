@@ -186,6 +186,18 @@ def cmd_desktop(ctx: Context, account: str, dry_run: bool) -> int:
     return 0
 
 
+RECORD_GRACE = 86400  # FR-5.6: `ais record` writes before Claude creates the transcript
+
+
+def _fresh(entry: Any) -> bool:
+    """Whether a state.json entry is younger than RECORD_GRACE; an unreadable time counts as old."""
+    try:
+        at = datetime.strptime(entry["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, KeyError, ValueError):
+        return False
+    return (datetime.now(timezone.utc) - at).total_seconds() < RECORD_GRACE
+
+
 def _record_last_used(store: Store, session: Session, account: Optional[str], restore: Any = None) -> Any:
     """Set the session's last-used entry (or, with account None, put `restore` back; None removes it).
 
@@ -199,8 +211,8 @@ def _record_last_used(store: Store, session: Session, account: Optional[str], re
         if not isinstance(sessions, dict):
             raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (store.dir / "state.json"))
         key = str(session.transcript)
-        for stale in [k for k in sessions if k != key and not os.path.exists(k)]:  # FR-5.6
-            del sessions[stale]
+        for stale in [k for k in sessions if k != key and not os.path.exists(k) and not _fresh(sessions[k])]:
+            del sessions[stale]  # FR-5.6
         previous.append(sessions.get(key))
         if account is not None:
             sessions[key] = {"account": account, "at": at}
@@ -267,6 +279,30 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
     except (AisError, OSError) as e:
         guards.print_warnings([getattr(e, "message", str(e))])
     return rc
+
+
+HOOK_INPUT_MAX = 64 * 1024
+
+
+def cmd_record(ctx: Context, stdin: str) -> int:
+    """FR-3.21, ADR-0010: record the starting session's account from the hook's stdin; prints nothing."""
+    if len(stdin) > HOOK_INPUT_MAX:
+        return 0
+    try:
+        payload = json.loads(stdin)
+    except ValueError:
+        return 0
+    found = ctx.provider_for(ctx.config.accounts[ctx.config.default]).hook_session(payload, ctx.env)
+    if found is None:
+        return 0
+    s, slot = found
+    # exact match only (ADR-0002): unset is the default account, any other spelling is another slot
+    acc = next((a for a in ctx.config.accounts.values() if a.cred_dir == slot), None)
+    if acc is None:
+        return 0
+    _record_last_used(ctx.store, s, acc.name)
+    ctx.store.log("record", acc.name, s.id, "ok")
+    return 0
 
 
 WINDOW_ENV = "AIS_ACCOUNT"  # FR-3.16: the account `ais use` set for this terminal window
@@ -455,16 +491,13 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
     s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session,
                             dry_run)
     last = _last_used(ctx, s)
-    # FR-3.1: no record means a plain `claude`, on this terminal's `ais use` account or else the default
-    window = _window_account(ctx)
-    assumed = window or ctx.config.default
-    acc = _target(ctx, account, last or assumed)
+    # FR-3.1: the SessionStart hook records every terminal session (ADR-0010); no record means the default
+    acc = _target(ctx, account, last or ctx.config.default)
     if last is None:
-        last = assumed  # so FR-2.8 still asks before the transcript moves to the other account
+        last = ctx.config.default  # so FR-2.8 still asks before the transcript moves to the other account
         if acc.name != last:  # the FR-2.8 prompt below names this assumed account
-            print("ais: no record of this session; assuming it last ran on %s%s" % (
-                ctx.config.accounts[last].label, "" if window is None else
-                " (set by `ais use` in this terminal; name the account to resume elsewhere)"), file=sys.stderr)
+            print("ais: no record of this session; assuming it last ran on %s"
+                  % ctx.config.accounts[last].label, file=sys.stderr)
     provider = ctx.provider_for(acc)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)
@@ -759,6 +792,7 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
               + "\nIt puts ~/.local/bin, where ais is installed, on your PATH.")
     print('\nTo pick an account per terminal window with `ais use <account>`, add this line to ~/.zshrc:\n  '
           'eval "$(ais shell-init)"')
+    print("\nSo `ais switch` knows the account of every session, however it was started, run:\n  ais hook install")
     print("\n" + provider.shared_data_note)
     return 0
 
@@ -867,22 +901,31 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
                  "and nothing else in ~/.local/bin needs it (claude itself lives there)")
     steps.append('~/.zshrc: remove the line  eval "$(ais shell-init)"  if you added it')
+    hook = None  # type: Optional[Path]
+    try:
+        real, data, _ = _hook_change(ctx, add=False)
+        if data is not None:
+            hook = real
+    except AisError as e:  # never block uninstall on a settings file ais cannot edit
+        steps.append("the ais SessionStart hook: remove it by hand (%s)" % e.message)
 
     def manual() -> None:
         print("\nManual steps (ais never touches these):")
         for s in steps:
             print("  " + s)
 
-    if not here and plugin is None:
+    if not here and plugin is None and hook is None:
         print("Nothing to remove.")
         manual()
         return 0
     print("Uninstall would remove:" if dry_run else "Uninstall will remove:")
     if plugin is not None:
         print("  %s (SwiftBar plugin recorded in state.json)" % plugin)
+    if hook is not None:
+        print("  %s: only ais's SessionStart hook" % hook)
     for e in entries:
         print("  %s%s" % (e, "/ (asks first)" if e == snaps else ""))
-    if not entries:
+    if here and not entries:
         print("  %s/ (empty)" % store.dir)
     if dry_run:
         manual()
@@ -893,6 +936,8 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     keep = snaps_here and not yes("Also delete the saved snapshots in %s? [y/N] " % snaps)
     if plugin is not None:
         _unlink(plugin)  # untrusted path: never a folder, even if swapped in after the check
+    if hook is not None:
+        _apply_hook(ctx, add=False)
     if keep:
         for e in entries:
             if e != snaps:
@@ -1011,4 +1056,107 @@ def cmd_menu_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[s
     _unlink(plugin)
     ctx.store.update_json("state.json", lambda d: {k: v for k, v in d.items() if k != "menu_plugin"})
     print("Removed " + str(plugin))
+    return 0
+
+
+# ADR-0010: harmless on a machine without ais, since the settings file is shared through dotfiles
+HOOK_COMMAND = '[ -x "$HOME/.local/bin/ais" ] && "$HOME/.local/bin/ais" record || true'
+
+
+def _hook_settings(ctx: Context) -> Tuple[Path, Optional[dict], int]:
+    """(realpath to write, parsed settings or None when the file is missing, mode to keep). No symlink replaced."""
+    home = ctx.store.home
+    path = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None)).hook_settings_path(home)
+    real = Path(os.path.realpath(str(path)))
+    root = os.path.realpath(str(home))
+    if os.path.commonpath([str(real), root]) != root:
+        raise AisError(EXIT_CANNOT_WRITE, "%s resolves to %s, outside your home folder; edit it by hand" % (path, real))
+    try:
+        st = os.stat(str(real))
+    except FileNotFoundError:
+        return real, None, 0o600
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (path, e))
+    if not stat.S_ISREG(st.st_mode):
+        raise AisError(EXIT_CANNOT_WRITE, "%s is not a regular file; edit it by hand" % path)
+    try:
+        data = json.loads(real.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise AisError(EXIT_CONFIG, "%s: %s; ais changed nothing" % (path, e))
+    if not isinstance(data, dict):
+        raise AisError(EXIT_CONFIG, "%s: not a JSON object; ais changed nothing" % path)
+    return real, data, stat.S_IMODE(st.st_mode)
+
+
+def _write_settings(real: Path, data: dict, mode: int) -> None:
+    """Temp file in the real file's folder, fsync, rename over the real file: a symlink to it stays a symlink."""
+    tmp = None
+    try:
+        real.parent.mkdir(mode=0o700, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(real.parent), prefix="." + real.name + ".")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, str(real))
+        tmp = None
+    except OSError as e:
+        raise AisError(EXIT_CANNOT_WRITE, "%s: %s" % (real, e))
+    finally:
+        if tmp is not None:
+            _unlink(Path(tmp))
+
+
+def _hook_change(ctx: Context, add: bool) -> Tuple[Path, Optional[dict], int]:
+    """The settings with ais's hook added or removed; data None when nothing would change."""
+    real, data, mode = _hook_settings(ctx)
+    provider = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None))
+    new = {} if data is None else data
+    try:
+        changed = (provider.add_start_hook if add else provider.remove_start_hook)(new, HOOK_COMMAND)
+    except ValueError as e:
+        raise AisError(EXIT_CONFIG, "%s: %s; ais changed nothing" % (real, e))
+    return real, new if changed else None, mode
+
+
+def _apply_hook(ctx: Context, add: bool) -> None:
+    """Re-read after the prompt, so a change made to the file while it waited is kept."""
+    real, data, mode = _hook_change(ctx, add)
+    if data is not None:
+        _write_settings(real, data, mode)
+
+
+def cmd_hook_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-5.7: show, ask, add ais's SessionStart hook to the user settings file."""
+    real, data, mode = _hook_change(ctx, add=True)
+    if data is None:
+        print("The ais SessionStart hook is already installed in %s." % real)
+        return 0
+    print("%s %s a SessionStart hook that runs:\n  %s" % ("Would add to" if dry_run else "Will add to", real,
+                                                         HOOK_COMMAND))
+    if dry_run:
+        return 0
+    if not _yes(answers)("Add it? [y/N] "):
+        print("Nothing written.", file=sys.stderr)
+        return EXIT_DECLINED
+    _apply_hook(ctx, add=True)
+    print("Added the SessionStart hook to " + str(real))
+    return 0
+
+
+def cmd_hook_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
+    """FR-5.8: remove only ais's SessionStart hook after a yes."""
+    real, data, mode = _hook_change(ctx, add=False)
+    if data is None:
+        print("No ais hook in %s." % real)
+        return 0
+    print("%s the ais SessionStart hook from %s" % ("Would remove" if dry_run else "Will remove", real))
+    if dry_run:
+        return 0
+    if not _yes(answers)("Remove it? [y/N] "):
+        print("Nothing removed.", file=sys.stderr)
+        return EXIT_DECLINED
+    _apply_hook(ctx, add=False)
+    print("Removed the SessionStart hook from " + str(real))
     return 0

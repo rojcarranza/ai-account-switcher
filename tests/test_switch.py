@@ -171,25 +171,25 @@ class SwitchTest(SwitchCase):
         self.assertIn("assuming it last ran on Personal", err)
         self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
 
-    def test_switch_unknown_last_used_assumes_terminal_account(self):
-        # #79: `claude <args>` in an `ais use work` terminal ran on work without a record
+    def test_switch_unknown_last_used_ignores_terminal_account(self):
+        # #81: AIS_ACCOUNT may be another window's account; the SessionStart hook records sessions instead
         self.env(AIS_ACCOUNT="work")
-        self.write_config(acks={"work->personal": "2026-10-01"})
+        self.write_config(acks={"personal->work": "2026-10-01"})
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.slot(), "slot=<unset>")
-        self.assertIn("assuming it last ran on Work (set by `ais use` in this terminal; "
-                      "name the account to resume elsewhere)", err)
-
-    def test_switch_named_account_unknown_last_used_follows_terminal_account(self):
-        # FR-3.2 with #79: naming the assumed account resumes there without the prompt
-        self.env(AIS_ACCOUNT="work")
-        code, _, err = self.ais("switch", "personal", stdin="")  # EOF declines work->personal, records nothing
-        self.assertEqual(code, 65)
-        self.assertIn("used under Work) will be sent under Personal", err)
-        code, _, err = self.ais("switch", "work", stdin="")
-        self.assertEqual(code, 0, err)
         self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertIn("assuming it last ran on Personal", err)
+        self.assertNotIn("ais use", err)
+
+    def test_switch_named_account_unknown_last_used_ignores_terminal_account(self):
+        # FR-3.2 with #81: naming the default account resumes there without the prompt, whatever AIS_ACCOUNT says
+        self.env(AIS_ACCOUNT="work")
+        code, _, err = self.ais("switch", "work", stdin="")  # EOF declines personal->work, records nothing
+        self.assertEqual(code, 65)
+        self.assertIn("used under Personal) will be sent under Work", err)
+        code, _, err = self.ais("switch", "personal", stdin="")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=<unset>")
         self.assertNotIn("will be sent under", err)
 
     def test_switch_unknown_last_used_ignores_unconfigured_terminal_account(self):

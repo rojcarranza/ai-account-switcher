@@ -1,6 +1,6 @@
 # Fakes
 
-Fake `claude`, `security`, `pgrep`, `lsof`, `ps`, `open`, `defaults` and `pbcopy` scripts for tests live here.
+Fake `claude`, `security`, `pgrep`, `lsof`, `ps`, `open`, `defaults`, `pbcopy` and `cp` scripts for tests live here.
 Tests put them first on `PATH` and set `HOME` to a temp dir; they never touch the real HOME, Keychain or ~/.claude.
 
 - `claude_default_sigint`: interactive claude with no signal handling; writes `$$` to `$FAKE_READY`, then dies on SIGINT.
@@ -10,3 +10,4 @@ Tests put them first on `PATH` and set `HOME` to a temp dir; they never touch th
 - `security`: with `$FAKE_SECURITY_SLEEP` set it leaves a `sleep` child (pid in `$FAKE_SECURITY_CHILD_FILE`) and hangs that many seconds before its normal reply.
 - `defaults`: logs its argv to `$FAKE_CALL_LOG`; prints `$FAKE_SWIFTBAR_DIR` when set, else exits 1 with `Domain com.ameba.SwiftBar does not exist`.
 - `pbcopy`: writes its stdin to `$FAKE_PBCOPY_OUT`.
+- `cp`: exits 1 when `$FAKE_CP_FAIL` is set; with `$FAKE_CP_GATE` set it touches `$FAKE_CP_GATE.waiting` and waits up to ~20 s for `$FAKE_CP_GATE`; logs its argv to `$FAKE_CALL_LOG`, drops `-c` (APFS clone) and runs `/bin/cp`.
