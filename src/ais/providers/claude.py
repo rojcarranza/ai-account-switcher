@@ -23,6 +23,9 @@ from ais.providers.base import Session
 PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
 SLOT_ENV = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
+ENTRYPOINT_ENV = "CLAUDE_CODE_ENTRYPOINT"  # ADR-0010: Desktop sets claude-desktop and no slot variable
+HOOK_ENTRYPOINT = "cli"
+START_EVENT = "SessionStart"
 TESTED_VERSIONS = ("2.1.301", "2.1.302")  # min, max inclusive (spike (f))
 VERSION_TIMEOUT = 10
 AUTH_TIMEOUT = 10
@@ -315,6 +318,84 @@ class ClaudeProvider:
 
     def in_folder(self, session: Session, folder: Path) -> bool:
         return _same_folder(str(session.folder), _nfc_real(str(folder)))
+
+    def hook_settings_path(self, home: Path) -> Path:
+        """ADR-0010: the user settings file that holds ais's SessionStart hook."""
+        return home / ".claude" / "settings.json"
+
+    @staticmethod
+    def _start_groups(data: Any, create: bool) -> Optional[List[Any]]:
+        """The SessionStart group list in parsed settings; ValueError when a level has the wrong type."""
+        if not isinstance(data, dict):
+            raise ValueError("not a JSON object")
+        hooks = data.setdefault("hooks", {}) if create else data.get("hooks")
+        if hooks is None:
+            return None
+        if not isinstance(hooks, dict):
+            raise ValueError('"hooks" is not an object')
+        groups = hooks.setdefault(START_EVENT, []) if create else hooks.get(START_EVENT)
+        if groups is not None and not isinstance(groups, list):
+            raise ValueError('"hooks.%s" is not a list' % START_EVENT)
+        return groups
+
+    @staticmethod
+    def _is_ours(hook: Any, command: str) -> bool:
+        return isinstance(hook, dict) and hook.get("type") == "command" and hook.get("command") == command
+
+    def add_start_hook(self, data: Any, command: str) -> bool:
+        """Add one matcher-less SessionStart group running command, unless one has it; True when data changed."""
+        groups = self._start_groups(data, create=False) or []
+        if any(isinstance(g, dict) and isinstance(g.get("hooks"), list)
+               and any(self._is_ours(h, command) for h in g["hooks"]) for g in groups):
+            return False
+        groups = self._start_groups(data, create=True)
+        groups.append({"hooks": [{"type": "command", "command": command}]})
+        return True
+
+    def remove_start_hook(self, data: Any, command: str) -> bool:
+        """Remove every hook running command, then the groups, event and "hooks" key it left empty."""
+        groups = self._start_groups(data, create=False)
+        if not groups:
+            return False
+        changed = False
+        for g in list(groups):
+            if not isinstance(g, dict) or not isinstance(g.get("hooks"), list):
+                continue
+            kept = [h for h in g["hooks"] if not self._is_ours(h, command)]
+            if len(kept) != len(g["hooks"]):
+                changed = True
+                if kept:
+                    g["hooks"] = kept
+                else:
+                    groups.remove(g)
+        if changed and not groups:
+            del data["hooks"][START_EVENT]
+            if not data["hooks"]:
+                del data["hooks"]
+        return changed
+
+    def hook_session(self, payload: Any, env: Mapping[str, str]) -> Optional[Tuple[Session, Optional[str]]]:
+        """FR-3.21: (session, slot value or None when unset) from SessionStart stdin JSON; None to record nothing.
+
+        The transcript key is spelled as _scan spells it, so the record matches the session ais later finds.
+        """
+        if env.get(ENTRYPOINT_ENV, HOOK_ENTRYPOINT) != HOOK_ENTRYPOINT:  # Desktop, IDE, SDK: no slot variable
+            return None
+        if not isinstance(payload, dict):
+            return None
+        sid, path = payload.get("session_id"), payload.get("transcript_path")
+        if not isinstance(sid, str) or not isinstance(path, str) or not _UUID_RE.fullmatch(sid):
+            return None
+        if str(uuid.UUID(sid)) != sid:  # _scan keeps only canonical lowercase names
+            return None
+        p = Path(path)
+        projects = Path.home() / ".claude" / "projects"
+        # a project folder directly under projects, not reached through "..", a symlink or a subagent folder
+        if p.name != sid + ".jsonl" or p.parent.name in ("", ".", "..") \
+                or os.path.realpath(str(p.parent)) != os.path.join(os.path.realpath(str(projects)), p.parent.name):
+            return None
+        transcript = projects / p.parent.name / p.name
+        return Session(sid, transcript.parent, transcript, "", 0.0), env.get(SLOT_ENV)
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]:
         return next((s for s in self._scan(cache) if s.id == session_id), None)

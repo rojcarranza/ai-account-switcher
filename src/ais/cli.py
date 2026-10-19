@@ -41,6 +41,8 @@ def _parser() -> argparse.ArgumentParser:
     how.add_argument("--shell", action="store_true", help="print the shell commands (used by ais shell-init)")
     how.add_argument("--copy", action="store_true", help="copy `ais use <account>` to the clipboard")
     sub.add_parser("shell-init", help="print the shell functions for ~/.zshrc", allow_abbrev=False)
+    sub.add_parser("record", help="record the starting session's account (run by the SessionStart hook)",
+                   allow_abbrev=False)
     desktop = sub.add_parser("desktop", help="open Claude Desktop for an account", allow_abbrev=False)
     desktop.add_argument("account", nargs="?")  # missing -> Config.get lists the names
     desktop.add_argument("--dry-run", action="store_true")
@@ -56,6 +58,13 @@ def _parser() -> argparse.ArgumentParser:
     menu_sub.add_parser("render", help="print the SwiftBar menu", allow_abbrev=False)
     for name, text in (("install", "write the SwiftBar plugin"), ("uninstall", "remove the SwiftBar plugin")):
         sp = menu_sub.add_parser(name, help=text, allow_abbrev=False)
+        sp.add_argument("--dry-run", action="store_true", help="print what would happen, change nothing")
+    hook_p = sub.add_parser("hook", help="Claude Code SessionStart hook that records each session's account",
+                            allow_abbrev=False)
+    hook_sub = hook_p.add_subparsers(dest="hook_command", parser_class=_Parser)
+    for name, text in (("install", "add ais's hook to ~/.claude/settings.json"),
+                       ("uninstall", "remove ais's hook from ~/.claude/settings.json")):
+        sp = hook_sub.add_parser(name, help=text, allow_abbrev=False)
         sp.add_argument("--dry-run", action="store_true", help="print what would happen, change nothing")
     return p
 
@@ -97,6 +106,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             if (ns.shell or ns.copy) and ns.account is None:
                 raise AisError(EXIT_USAGE, "--shell and --copy need an account")
             return core.cmd_use(_context(started), ns.account, ns.shell, ns.copy)
+        if ns.command == "record":  # ADR-0010: a broken ais never blocks or clutters a session
+            try:
+                return core.cmd_record(_context(started, cwd_optional=True), sys.stdin.read(core.HOOK_INPUT_MAX + 1))
+            except Exception:  # noqa: BLE001 - the hook must always exit 0 silently
+                return 0
         if ns.command == "shell-init":  # needs no config
             return core.cmd_shell_init(_context(started, Config({}, "", {}, False), cwd_optional=True))
         if ns.command == "setup":  # no config exists yet: a placeholder one
@@ -125,6 +139,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     ctx = _context(started, Config({}, "", {}, False), cwd_optional=True)  # uninstall needs no account
                 return fn(ctx, ns.dry_run)
             menu.cmd_menu_render(lambda: _context(started, cwd_optional=True), os.path.abspath(sys.argv[0]), started)
+        if ns.command == "hook":
+            if ns.hook_command is None:
+                raise AisError(EXIT_USAGE, "a hook command is required: install, uninstall")
+            fn = core.cmd_hook_install if ns.hook_command == "install" else core.cmd_hook_uninstall
+            return fn(_context(started, Config({}, "", {}, False), cwd_optional=True), ns.dry_run)  # needs no account
         if ns.command == "status":
             return core.cmd_status(_context(started), ns.json)
         return core.cmd_login(_context(started), ns.account or "", ns.dry_run, ns.allow_api_key)

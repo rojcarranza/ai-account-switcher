@@ -55,6 +55,10 @@ class Provider(Protocol):
 
     def find_session(self, session_id: str, cache: Any) -> Optional[Session]: ...
 
+    def hook_session(self, payload: Any, env: Mapping[str, str]) -> Optional[Tuple[Session, Optional[str]]]:
+        """(session, slot value or None when unset) from the session-start hook's input; None to record nothing."""
+        ...
+
     def open_session_pid(self, session: Session, procs: Any) -> Optional[int]: ...
 
     def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
