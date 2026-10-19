@@ -23,7 +23,7 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 5. **Built for more AIs later:** a small provider plug-in shape with only Claude implemented, plus a reversible install that backs up `~/.claude` first.
 
 ## Non-goals (at least 5)
-1. No claude.ai web chat. Claude Desktop only as one separate instance per account; no single Desktop that lists both accounts' sessions (next release, rojcarranza/ai-account-switcher#1).
+1. No claude.ai web chat. Claude Desktop only as one separate instance per account; no single Desktop that switches accounts. Both accounts' sessions show in one window through Desktop's own import (rojcarranza/ai-account-switcher#1).
 2. No automatic switching when a limit hits; the user runs the switch command.
 3. No second AI provider implemented; only the plug-in shape exists.
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
@@ -60,3 +60,4 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 - 2026-10-16: MVP bullet 4 and non-goal 4 changed to add an optional SwiftBar menu bar plugin (user approved; Claude Switcher-style menu status without a native app).
 - 2026-10-16: MVP bullet 1 and non-goal 1 changed to add one Claude Desktop instance per account (user approved; ais replaces Claude Switcher, which the user will uninstall; design `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`).
 - 2026-10-18: non-goal 7 narrowed so the SwiftBar menu can show each account's latest usage sample that Claude Desktop saved, plus session titles and owners from Desktop's own session records, all read only (user approved; ADR-0009, rojcarranza/ai-account-switcher#54 to #57).
+- 2026-10-19: non-goal 1 narrowed: both accounts' sessions show in one Desktop through Desktop's own import; one Desktop still does not switch accounts (user approved; rojcarranza/ai-account-switcher#1, design `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`).
