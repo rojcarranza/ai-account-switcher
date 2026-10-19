@@ -271,6 +271,13 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
 
 WINDOW_ENV = "AIS_ACCOUNT"  # FR-3.16: the account `ais use` set for this terminal window
 
+
+def _window_account(ctx: Context) -> Optional[str]:
+    """The configured account `ais use` set for this terminal, or None."""
+    name = ctx.env.get(WINDOW_ENV, "")
+    return name if name in ctx.config.accounts else None
+
+
 # FR-3.16: `local` then assign, so a failed `ais use --shell` is not hidden by local's own status;
 # an alias would win over the functions (and `name() {` fails to parse under one), so drop both aliases
 SHELL_INIT = """unalias ais %(cmd)s 2>/dev/null
@@ -287,6 +294,8 @@ function ais {
 function %(cmd)s {
   if [ -n "${%(var)s:-}" ] && [ $# -eq 0 ]; then
     command ais run "$%(var)s"
+  elif [ -n "${%(var)s:-}" ] && command ais run --dry-run "$%(var)s" -- "$@" >/dev/null 2>&1; then
+    command ais run "$%(var)s" -- "$@"
   else
     command %(cmd)s "$@"
   fi
@@ -303,8 +312,8 @@ def cmd_shell_init(ctx: Context) -> int:
 def cmd_use(ctx: Context, account: Optional[str], shell: bool, copy: bool) -> int:
     """FR-3.17 to FR-3.20."""
     if account is None:
-        name = ctx.env.get(WINDOW_ENV, "")
-        if name in ctx.config.accounts:
+        name = _window_account(ctx)
+        if name is not None:
             print("This terminal: " + ctx.config.accounts[name].label)
         else:
             print("This terminal: %s (default)" % ctx.config.get(ctx.config.default).label)
@@ -442,14 +451,15 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
                             dry_run)
     last = _last_used(ctx, s)
     # FR-3.1: no record means a plain `claude`, on this terminal's `ais use` account or else the default
-    assumed = ctx.env.get(WINDOW_ENV, "")
-    assumed = assumed if assumed in ctx.config.accounts else ctx.config.default
+    window = _window_account(ctx)
+    assumed = window or ctx.config.default
     acc = _target(ctx, account, last or assumed)
     if last is None:
         last = assumed  # so FR-2.8 still asks before the transcript moves to the other account
         if acc.name != last:  # the FR-2.8 prompt below names this assumed account
-            print("ais: no record of this session; assuming it last ran on %s"
-                  % ctx.config.accounts[last].label, file=sys.stderr)
+            print("ais: no record of this session; assuming it last ran on %s%s" % (
+                ctx.config.accounts[last].label, "" if window is None else
+                " (set by `ais use` in this terminal; name the account to resume elsewhere)"), file=sys.stderr)
     provider = ctx.provider_for(acc)
     env, warnings = provider.env_for(acc, ctx.env)
     guards.print_warnings(warnings)

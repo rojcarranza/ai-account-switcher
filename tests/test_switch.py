@@ -178,7 +178,8 @@ class SwitchTest(SwitchCase):
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.slot(), "slot=<unset>")
-        self.assertIn("assuming it last ran on Work", err)
+        self.assertIn("assuming it last ran on Work (set by `ais use` in this terminal; "
+                      "name the account to resume elsewhere)", err)
 
     def test_switch_named_account_unknown_last_used_follows_terminal_account(self):
         # FR-3.2 with #79: naming the assumed account resumes there without the prompt
