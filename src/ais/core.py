@@ -271,8 +271,10 @@ def cmd_run(ctx: Context, account: Optional[str], args: List[str], allow_api_key
 
 WINDOW_ENV = "AIS_ACCOUNT"  # FR-3.16: the account `ais use` set for this terminal window
 
-# FR-3.16: `local` then assign, so a failed `ais use --shell` is not hidden by local's own status
-SHELL_INIT = """ais() {
+# FR-3.16: `local` then assign, so a failed `ais use --shell` is not hidden by local's own status;
+# an alias would win over the functions (and `name() {` fails to parse under one), so drop both aliases
+SHELL_INIT = """unalias ais %(cmd)s 2>/dev/null
+function ais {
   if [ "$1" = use ] && [ $# -eq 2 ] && [ "${2#-}" = "$2" ]; then
     local _ais_env
     _ais_env=$(command ais use --shell "$2") || return
@@ -282,7 +284,7 @@ SHELL_INIT = """ais() {
     command ais "$@"
   fi
 }
-%(cmd)s() {
+function %(cmd)s {
   if [ -n "${%(var)s:-}" ] && [ $# -eq 0 ]; then
     command ais run "$%(var)s"
   else

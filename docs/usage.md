@@ -12,7 +12,7 @@ Setup and the full command list are in the [README](../README.md). This page is 
    ais switch
    ```
 
-   It resumes the newest session in this folder on the other account. A session started with plain `claude` counts as last used on the default account. The first switch between two accounts asks once before sending the transcript.
+   It resumes the newest session in this folder on the other account. A session started with plain `claude` counts as last used on the default account, except a plain `claude` with no arguments in a window set by `ais use` (see below), which is recorded on that window's account. The first switch between two accounts asks once before sending the transcript.
 
 To go back later, run `ais switch` again. To pick an older session: `ais switch --pick`.
 

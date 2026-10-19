@@ -108,7 +108,7 @@ class UseTest(TempHomeCase):
         code, _, err = self.ais("use", "--shell", "--copy", "work")
         self.assertEqual(code, 64)
 
-    def shell(self, script):
+    def shell(self, script, before=""):
         """Run script in bash after loading `ais shell-init`, with a real `ais` command on PATH."""
         bin_dir = self.home / "bin"
         bin_dir.mkdir(exist_ok=True)
@@ -117,7 +117,7 @@ class UseTest(TempHomeCase):
                            % (shlex.quote(str(SRC)), shlex.quote(sys.executable)))
         wrapper.chmod(0o755)
         env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
-        return subprocess.run(["bash", "-c", 'eval "$(ais shell-init)" || exit 9\n' + script],
+        return subprocess.run(["bash", "-c", before + 'eval "$(command ais shell-init)" || exit 9\n' + script],
                               env=env, cwd=str(self.proj), capture_output=True, text=True, timeout=60)
 
     def test_function_sets_window_then_plain_claude_follows(self):
@@ -148,3 +148,9 @@ class UseTest(TempHomeCase):
     def test_other_ais_commands_pass_through(self):
         r = self.shell('ais use; echo "rc=$?"\n')
         self.assertEqual(r.stdout.splitlines(), ["This terminal: Personal (default)", "rc=0"], r.stderr)
+
+    def test_init_survives_an_alias_named_claude(self):
+        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+                       'claude; echo "rc=$?"\n', before="shopt -s expand_aliases\nalias claude=false ais=false\n")
+        self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
+        self.assertEqual(self.slot(), "slot=" + self.work)
