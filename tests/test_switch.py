@@ -53,7 +53,7 @@ class SwitchCase(TempHomeCase):
         self.argv_log = self.home / "argv.log"
         self.calls = self.home / "calls.log"
         # the developer shell may run inside Claude Code: clear billing and fake-control variables
-        for k in [k for k in os.environ if k.startswith("FAKE_")] + list(BILLING_ENV) + [SLOT, CONFIG_DIR_ENV]:
+        for k in [k for k in os.environ if k.startswith("FAKE_")] + list(BILLING_ENV) + [SLOT, CONFIG_DIR_ENV, "AIS_ACCOUNT"]:
             if k in os.environ:
                 saved = os.environ.pop(k)
                 self.addCleanup(os.environ.__setitem__, k, saved)
@@ -170,6 +170,23 @@ class SwitchTest(SwitchCase):
         self.assertEqual(self.slot(), "slot=" + self.work)
         self.assertIn("assuming it last ran on Personal", err)
         self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
+
+    def test_switch_unknown_last_used_assumes_terminal_account(self):
+        # #79: `claude <args>` in an `ais use work` terminal ran on work without a record
+        self.env(AIS_ACCOUNT="work")
+        self.write_config(acks={"work->personal": "2026-10-01"})
+        code, _, err = self.ais("switch")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=<unset>")
+        self.assertIn("assuming it last ran on Work", err)
+
+    def test_switch_unknown_last_used_ignores_unconfigured_terminal_account(self):
+        self.env(AIS_ACCOUNT="gone")
+        self.write_config(acks={"personal->work": "2026-10-01"})
+        code, _, err = self.ais("switch")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertIn("assuming it last ran on Personal", err)
 
     def test_switch_unknown_last_used_still_asks_ack(self):
         code, _, err = self.ais("switch", stdin="")  # FR-2.8 for personal->work: EOF declines

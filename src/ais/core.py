@@ -441,9 +441,12 @@ def cmd_switch(ctx: Context, account: Optional[str], pick: bool, session: Option
     s, folder = _resolve_session(ctx, ctx.provider_for(ctx.config.accounts[ctx.config.default]), pick, session,
                             dry_run)
     last = _last_used(ctx, s)
-    acc = _target(ctx, account, last or ctx.config.default)
-    if last is None:  # FR-3.1: no record means a plain `claude`, on the default account
-        last = ctx.config.default  # so FR-2.8 still asks before the transcript moves to the other account
+    # FR-3.1: no record means a plain `claude`, on this terminal's `ais use` account or else the default
+    assumed = ctx.env.get(WINDOW_ENV, "")
+    assumed = assumed if assumed in ctx.config.accounts else ctx.config.default
+    acc = _target(ctx, account, last or assumed)
+    if last is None:
+        last = assumed  # so FR-2.8 still asks before the transcript moves to the other account
         if acc.name != last:  # the FR-2.8 prompt below names this assumed account
             print("ais: no record of this session; assuming it last ran on %s"
                   % ctx.config.accounts[last].label, file=sys.stderr)
