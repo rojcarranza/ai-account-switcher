@@ -19,12 +19,12 @@ SLOT = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 class UseTest(TempHomeCase):
     def setUp(self):
         super().setUp()
-        self.work = str(self.home / ".claude-accounts" / "work dir")  # a space: quoting matters
+        self.secondary = str(self.home / ".claude-accounts" / "secondary dir")  # a space: quoting matters
         self.ais_dir.mkdir(parents=True)
         (self.ais_dir / "config.json").write_text(json.dumps({
-            "version": 1, "default": "personal", "accounts": {
-                "personal": {"label": "Personal", "provider": "claude", "credDir": None},
-                "work": {"label": "Work", "provider": "claude", "credDir": self.work}}}))
+            "version": 1, "default": "primary", "accounts": {
+                "primary": {"label": "Primary", "provider": "claude", "credDir": None},
+                "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary}}}))
         self.proj = self.home / "proj"
         self.proj.mkdir()
         old = os.getcwd()
@@ -55,21 +55,21 @@ class UseTest(TempHomeCase):
         return p.read_text().strip() if p.exists() else None
 
     def test_shell_exports_extra_account(self):
-        code, out, err = self.ais("use", "--shell", "work")
+        code, out, err = self.ais("use", "--shell", "secondary")
         self.assertEqual(code, 0)
-        self.assertEqual(out.splitlines(), ["export %s=%s" % (SLOT, shlex.quote(self.work)),
-                                            "export AIS_ACCOUNT=work"])
-        self.assertEqual(err, "This terminal: Work\n")
+        self.assertEqual(out.splitlines(), ["export %s=%s" % (SLOT, shlex.quote(self.secondary)),
+                                            "export AIS_ACCOUNT=secondary"])
+        self.assertEqual(err, "This terminal: Secondary\n")
         self.assertIsNone(self.slot())  # starts nothing
 
     def test_shell_unsets_slot_for_default_account(self):
-        os.environ[SLOT] = self.work
+        os.environ[SLOT] = self.secondary
         os.environ[CONFIG_DIR_ENV] = "/x"
-        code, out, err = self.ais("use", "--shell", "personal")
+        code, out, err = self.ais("use", "--shell", "primary")
         self.assertEqual(code, 0)
         self.assertEqual(sorted(out.splitlines()),
-                         sorted(["export AIS_ACCOUNT=personal", "unset " + SLOT, "unset " + CONFIG_DIR_ENV]))
-        self.assertEqual(err, "This terminal: Personal\n")  # no FR-1.3 warning: the unset is the point
+                         sorted(["export AIS_ACCOUNT=primary", "unset " + SLOT, "unset " + CONFIG_DIR_ENV]))
+        self.assertEqual(err, "This terminal: Primary\n")  # no FR-1.3 warning: the unset is the point
 
     def test_shell_unknown_account_prints_nothing(self):
         code, out, err = self.ais("use", "--shell", "nope")
@@ -78,25 +78,25 @@ class UseTest(TempHomeCase):
         self.assertIn("unknown account 'nope'", err)
 
     def test_use_without_function_warns_and_runs(self):
-        code, out, err = self.ais("use", "work")
+        code, out, err = self.ais("use", "secondary")
         self.assertEqual(code, 0)
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
         self.assertIn('eval "$(ais shell-init)"', err)
         self.assertIn("this terminal was not set", err)
 
     def test_use_alone_names_the_window_account(self):
-        os.environ["AIS_ACCOUNT"] = "work"
-        self.assertEqual(self.ais("use"), (0, "This terminal: Work\n", ""))
+        os.environ["AIS_ACCOUNT"] = "secondary"
+        self.assertEqual(self.ais("use"), (0, "This terminal: Secondary\n", ""))
 
     def test_use_alone_defaults(self):
-        self.assertEqual(self.ais("use"), (0, "This terminal: Personal (default)\n", ""))
+        self.assertEqual(self.ais("use"), (0, "This terminal: Primary (default)\n", ""))
         os.environ["AIS_ACCOUNT"] = "gone"
-        self.assertEqual(self.ais("use"), (0, "This terminal: Personal (default)\n", ""))
+        self.assertEqual(self.ais("use"), (0, "This terminal: Primary (default)\n", ""))
 
     def test_copy_puts_command_on_clipboard(self):
-        code, _, _ = self.ais("use", "--copy", "work")
+        code, _, _ = self.ais("use", "--copy", "secondary")
         self.assertEqual(code, 0)
-        self.assertEqual(self.clip.read_text(), "ais use work")
+        self.assertEqual(self.clip.read_text(), "ais use secondary")
         self.assertIsNone(self.slot())
 
     def test_copy_unknown_account(self):
@@ -105,7 +105,7 @@ class UseTest(TempHomeCase):
         self.assertFalse(self.clip.exists())
 
     def test_shell_and_copy_cannot_be_combined(self):
-        code, _, err = self.ais("use", "--shell", "--copy", "work")
+        code, _, err = self.ais("use", "--shell", "--copy", "secondary")
         self.assertEqual(code, 64)
 
     def shell(self, script, before=""):
@@ -121,12 +121,12 @@ class UseTest(TempHomeCase):
                               env=env, cwd=str(self.proj), capture_output=True, text=True, timeout=60)
 
     def test_function_sets_window_then_plain_claude_follows(self):
-        r = self.shell('ais use work; echo "rc=$? acct=$AIS_ACCOUNT"\n'
+        r = self.shell('ais use secondary; echo "rc=$? acct=$AIS_ACCOUNT"\n'
                        'rm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
                        'claude; echo "rc=$?"\n')
-        self.assertEqual(r.stdout.splitlines(), ["rc=0 acct=work", "rc=0"], r.stderr)
-        self.assertEqual(self.slot(), "slot=" + self.work)  # the plain claude ran on work
-        self.assertIn("This terminal: Work", r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ["rc=0 acct=secondary", "rc=0"], r.stderr)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)  # the plain claude ran on secondary
+        self.assertIn("This terminal: Secondary", r.stderr)
 
     def test_function_unknown_account_changes_nothing(self):
         r = self.shell('ais use nope; echo "rc=$? acct=${AIS_ACCOUNT-unset}"\n')
@@ -134,27 +134,27 @@ class UseTest(TempHomeCase):
         self.assertIsNone(self.slot())
 
     def test_plain_claude_with_args_is_untouched(self):
-        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+        r = self.shell('ais use secondary >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
                        'claude -c; echo "rc=$?"\n')
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
         self.assertEqual(self.argv_log.read_text().splitlines(), ["-c"])  # ais run would refuse -c
-        self.assertEqual(self.slot(), "slot=" + self.work)  # the exported slot still applies
+        self.assertEqual(self.slot(), "slot=" + self.secondary)  # the exported slot still applies
 
     def test_claude_with_args_records_window_account(self):
-        # #79: args ais run accepts go through it, so `ais switch` knows the session ran on work
+        # #79: args ais run accepts go through it, so `ais switch` knows the session ran on secondary
         transcript = self.home / ".claude" / "projects" / "x" / "44444444-4444-4444-8444-444444444444.jsonl"
-        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+        r = self.shell('ais use secondary >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
                        'FAKE_CLAUDE_CWD="$PWD" FAKE_CLAUDE_WRITE_TRANSCRIPT=%s claude --model opus; echo "rc=$?"\n'
                        % shlex.quote(str(transcript)))
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
         self.assertEqual(self.argv_log.read_text().splitlines(), ["--model", "opus"])
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
         state = json.loads((self.ais_dir / "state.json").read_text())
-        self.assertEqual(state["sessions"][str(transcript)]["account"], "work")
+        self.assertEqual(state["sessions"][str(transcript)]["account"], "secondary")
 
     def test_claude_with_args_billing_risk_is_refused(self):
         # FR-2.2: a billing risk refuses `claude <args>` as it refuses a plain `claude`
-        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+        r = self.shell('ais use secondary >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
                        'export ANTHROPIC_API_KEY=x\nclaude --model opus; echo "rc=$?"\n')
         self.assertEqual(r.stdout.splitlines(), ["rc=77"], r.stderr)
         self.assertIn("ANTHROPIC_API_KEY", r.stderr)
@@ -167,10 +167,10 @@ class UseTest(TempHomeCase):
 
     def test_other_ais_commands_pass_through(self):
         r = self.shell('ais use; echo "rc=$?"\n')
-        self.assertEqual(r.stdout.splitlines(), ["This terminal: Personal (default)", "rc=0"], r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ["This terminal: Primary (default)", "rc=0"], r.stderr)
 
     def test_init_survives_an_alias_named_claude(self):
-        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+        r = self.shell('ais use secondary >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
                        'claude; echo "rc=$?"\n', before="shopt -s expand_aliases\nalias claude=false ais=false\n")
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)

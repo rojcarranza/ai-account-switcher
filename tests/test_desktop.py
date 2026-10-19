@@ -43,44 +43,44 @@ class DesktopTest(SwitchCase):
     def open_calls(self):
         return [l for l in self.calls_text().splitlines() if l.startswith("open ")]
 
-    def test_default_opens_new_instance_while_work_runs(self):
+    def test_default_opens_new_instance_while_secondary_runs(self):
         self.env(FAKE_PS_FILE=str(self.home / "ps.txt"))
         (self.home / "ps.txt").write_text(
-            "301 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s/Library/Application Support/Claude-ais-work\n"
+            "301 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s/Library/Application Support/Claude-ais-secondary\n"
             % self.home)
-        code, _, err = self.desktop("personal")
+        code, _, err = self.desktop("primary")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.open_calls(), ["open -n -a %s" % (self.apps / "Claude.app")])
 
     def test_extra_account_opens_new_instance_with_its_folder(self):
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 0, err)
-        folder = self.home / "Library" / "Application Support" / "Claude-ais-work"
+        folder = self.home / "Library" / "Application Support" / "Claude-ais-secondary"
         self.assertEqual(self.open_calls(), ["open -n -a %s --args --user-data-dir=%s"
                                              % (self.apps / "Claude.app", folder)])
 
     def test_desktop_data_dir_override_is_launched_and_checked_for_running(self):
-        folder = self.home / "Library" / "Application Support" / "Claude-Work"
-        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+        folder = self.home / "Library" / "Application Support" / "Claude-Secondary"
+        self.write_config({"secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary,
                                     "desktop_data_dir": str(folder)}})
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.open_calls(), ["open -n -a %s --args --user-data-dir=%s"
                                              % (self.apps / "Claude.app", folder)])
         self.forbid_open()
         self.env(FAKE_PS_OUT="4243 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s" % folder)
-        code, out, err = self.desktop("work")
+        code, out, err = self.desktop("secondary")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out.strip(), "Work Desktop is already open (PID 4243)")
+        self.assertEqual(out.strip(), "Secondary Desktop is already open (PID 4243)")
 
     def test_override_equal_to_the_default_desktop_folder_exits_78(self):
         folder = self.home / "Library" / "Application Support" / "Claude"
-        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+        self.write_config({"secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary,
                                     "desktop_data_dir": str(folder)}})
         self.forbid_open()
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 78)
-        self.assertIn("work", err)
+        self.assertIn("secondary", err)
         self.assertIn("desktop_data_dir", err)
         self.assertEqual(self.open_calls(), [])
 
@@ -89,10 +89,10 @@ class DesktopTest(SwitchCase):
         (support / "Claude").mkdir(parents=True)
         if not (support / "claude").exists():
             self.skipTest("case-sensitive filesystem")
-        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
+        self.write_config({"secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary,
                                     "desktop_data_dir": str(support / "claude")}})
         self.forbid_open()
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 78)
         self.assertIn("desktop_data_dir", err)
         self.assertEqual(self.open_calls(), [])
@@ -100,19 +100,19 @@ class DesktopTest(SwitchCase):
     def test_already_running_does_not_launch(self):
         self.forbid_open()
         self.env(FAKE_PS_OUT="4242 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s"
-                 "/Library/Application Support/Claude-ais-work" % self.home)
-        code, out, err = self.desktop("work")
+                 "/Library/Application Support/Claude-ais-secondary" % self.home)
+        code, out, err = self.desktop("secondary")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out.strip(), "Work Desktop is already open (PID 4242)")
+        self.assertEqual(out.strip(), "Secondary Desktop is already open (PID 4242)")
         self.assertEqual(self.open_calls(), [])
 
     def test_ps_parsing_helpers_other_instances_and_spaces(self):
         text = FIXTURE.read_text()
-        work = Path(SUPPORT + "Claude-ais-work")
-        self.assertEqual(_desktop_pid(text, work), 301)  # helpers and the Switcher's Claude-work never match
+        secondary = Path(SUPPORT + "Claude-ais-secondary")
+        self.assertEqual(_desktop_pid(text, secondary), 301)  # helpers and the Switcher's Claude-secondary never match
         self.assertEqual(_desktop_pid(text, None), 101)
         self.assertIsNone(_desktop_pid(text, Path(SUPPORT + "Claude-ais-other")))
-        self.assertIsNone(_desktop_pid(text, Path(SUPPORT + "Claude-work-x")))
+        self.assertIsNone(_desktop_pid(text, Path(SUPPORT + "Claude-secondary-x")))
         self.assertIsNone(_desktop_pid("", None))
         tools = "\n".join(l for l in text.splitlines() if l.split()[0] in ("401", "402"))
         self.assertIsNone(_desktop_pid(tools, None))  # a tool that merely names the executable
@@ -124,7 +124,7 @@ class DesktopTest(SwitchCase):
 
     def test_app_missing_exits_69(self):
         a, b = self.home / "nope1", self.home / "nope2"
-        code, _, err = self.desktop("work", roots=[a, b])
+        code, _, err = self.desktop("secondary", roots=[a, b])
         self.assertEqual(code, 69)
         self.assertIn("Claude Desktop not found in %s or %s" % (a, b), err)
         self.assertEqual(self.open_calls(), [])
@@ -133,19 +133,19 @@ class DesktopTest(SwitchCase):
         bad = self.home / "bad"
         bad.mkdir()
         os.symlink(str(self.home / "gone"), str(bad / "Claude.app"))
-        code, _, err = self.desktop("personal", roots=[bad, self.apps])
+        code, _, err = self.desktop("primary", roots=[bad, self.apps])
         self.assertEqual(code, 0, err)
         self.assertEqual(self.open_calls(), ["open -n -a %s" % (self.apps / "Claude.app")])
 
     def test_open_failure_exits_69_with_stderr(self):
         self.env(FAKE_OPEN_RC="1", FAKE_OPEN_ERR="open: boom")
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 69)
         self.assertIn("open: boom", err)
 
     def test_ps_failure_exits_69_and_launches_nothing(self):
         self.env(FAKE_PS_RC="1", FAKE_PS_ERR="ps: nope")
-        code, _, err = self.desktop("work")
+        code, _, err = self.desktop("secondary")
         self.assertEqual(code, 69)
         self.assertIn("cannot check for a running Claude Desktop: ps: nope", err)
         self.assertEqual(self.open_calls(), [])
@@ -153,34 +153,34 @@ class DesktopTest(SwitchCase):
     def test_open_timeout_exits_69(self):
         self.env(FAKE_OPEN_SLEEP="5")
         with mock.patch.object(core, "OPEN_TIMEOUT", 0.3):
-            code, _, err = self.desktop("work")
+            code, _, err = self.desktop("secondary")
         self.assertEqual(code, 69)
         self.assertIn("timed out", err)
 
     def test_works_without_cwd(self):
         with mock.patch.object(cli.Path, "cwd", side_effect=OSError("gone")):
-            code, _, err = self.desktop("work")
+            code, _, err = self.desktop("secondary")
         self.assertEqual(code, 0, err)
 
     def test_unknown_account_exits_64(self):
         code, _, err = self.desktop("nobody")
         self.assertEqual(code, 64)
-        self.assertIn("personal", err)
+        self.assertIn("primary", err)
         code, _, err = self.desktop("")
         self.assertEqual(code, 64)
 
     def test_dry_run_checks_but_never_opens(self):
         self.forbid_open()
-        code, out, err = self.desktop("work", "--dry-run")
+        code, out, err = self.desktop("secondary", "--dry-run")
         self.assertEqual(code, 0, err)
-        folder = self.home / "Library" / "Application Support" / "Claude-ais-work"
+        folder = self.home / "Library" / "Application Support" / "Claude-ais-secondary"
         want = ["open", "-n", "-a", str(self.apps / "Claude.app"), "--args", "--user-data-dir=" + str(folder)]
         self.assertEqual(out.strip(), "Would run: " + " ".join(shlex.quote(a) for a in want))
         self.assertIn("ps -x -ww -o pid=,args=\n", self.calls_text())  # -x: Desktop has no terminal
         self.assertEqual(self.open_calls(), [])
         self.env(FAKE_PS_OUT="9 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=%s" % folder)
-        code, out, _ = self.desktop("work", "--dry-run")
-        self.assertEqual((code, out.strip()), (0, "Work Desktop is already open (PID 9)"))
+        code, out, _ = self.desktop("secondary", "--dry-run")
+        self.assertEqual((code, out.strip()), (0, "Secondary Desktop is already open (PID 9)"))
 
     def test_never_touches_claude_keychain_or_switcher_files(self):
         for d in (".claude", ".claude-accounts", ".config/claude-switcher"):
@@ -194,7 +194,7 @@ class DesktopTest(SwitchCase):
             return [tree_hash(self.home / w) if (self.home / w).is_dir()
                     else ((self.home / w).read_bytes(), os.lstat(str(self.home / w)).st_mtime_ns) for w in watched]
         before = os.listdir(str(self.ais_dir)), hashes()
-        for acct in ("personal", "work"):
+        for acct in ("primary", "secondary"):
             self.assertEqual(self.desktop(acct)[0], 0)
         self.assertEqual((os.listdir(str(self.ais_dir)), hashes()), before)
         self.assertNotIn("security", self.calls_text())

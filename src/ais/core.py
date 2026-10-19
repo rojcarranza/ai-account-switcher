@@ -675,7 +675,7 @@ def cmd_setup(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = No
     names = []  # type: List[str]
     picked = []  # type: List[Account]
     for extra in (False, True):
-        name = ask("%s account name" % ("Extra" if extra else "Default"), "work" if extra else "personal")
+        name = ask("%s account name" % ("Extra" if extra else "Default"), "secondary" if extra else "primary")
         if not NAME_RE.fullmatch(name):
             raise AisError(EXIT_USAGE, "account name %r must match ^[a-z][a-z0-9-]{0,31}$" % name)
         if name in names:

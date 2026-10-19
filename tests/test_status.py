@@ -17,12 +17,12 @@ class StatusTest(SwitchCase):
         self.addCleanup(patch.stop)
 
     def test_status_text(self):
-        self.last_used("work")
+        self.last_used("secondary")
         code, out, _ = self.ais("status")
         self.assertEqual(code, 0)
-        self.assertIn("  personal (Personal): credential present: yes", out)
-        self.assertIn("  work (Work): credential present: yes", out)
-        self.assertIn("session %s: last used work, not open" % UUID, out)
+        self.assertIn("  primary (Primary): credential present: yes", out)
+        self.assertIn("  secondary (Secondary): credential present: yes", out)
+        self.assertIn("session %s: last used secondary, not open" % UUID, out)
         self.assertIn("self-check: ok", out)
         self.assertIn(SEE_LINE + "\n", out)
 
@@ -40,7 +40,7 @@ class StatusTest(SwitchCase):
         d = json.loads(out)
         self.assertEqual(code, 0)
         self.assertEqual(set(d), {"accounts", "session", "recent", "self_check"})
-        self.assertEqual([a["name"] for a in d["accounts"]], ["personal", "work"])
+        self.assertEqual([a["name"] for a in d["accounts"]], ["primary", "secondary"])
         self.assertEqual(set(d["accounts"][0]), {"name", "label", "credential_present",
                                                  "credential_source", "credential_error"})
         self.assertEqual(set(d["session"]), {"id", "last_used", "open"})

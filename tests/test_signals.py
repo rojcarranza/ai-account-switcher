@@ -29,7 +29,7 @@ def started():
         f.write("started\\n")
     for name in os.environ.get("SELF_SIGNAL", "").split():  # signals arriving right after the spawn
         os.kill(os.getpid(), getattr(signal, name))
-sys.exit(run_claude(sys.argv[2:], dict(os.environ), Path.cwd(), "work", started))
+sys.exit(run_claude(sys.argv[2:], dict(os.environ), Path.cwd(), "secondary", started))
 """
 
 
@@ -68,7 +68,7 @@ class SignalTest(TempHomeCase):
     def finish(self, proc):
         _, err = proc.communicate(timeout=10)
         self.assertEqual(self.marker.read_text(), "started\n")
-        self.assertIn(b"ais: work", err)
+        self.assertIn(b"ais: secondary", err)
         self.assertNotIn(b"Traceback", err)
         return proc.returncode
 
@@ -127,7 +127,7 @@ class SignalTest(TempHomeCase):
 
 
 class InProcessTest(TempHomeCase):
-    def run_ok(self, label="work", on_started=lambda: None):
+    def run_ok(self, label="secondary", on_started=lambda: None):
         return run_claude(["sh", "-c", "exit 0"], dict(os.environ), self.home, label, on_started)
 
     def test_label_control_chars_stripped(self):
@@ -136,9 +136,9 @@ class InProcessTest(TempHomeCase):
                 return True
         out, err = Tty(), io.StringIO()
         with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
-            self.assertEqual(self.run_ok(label="wo\007rk\033]0;x\x7f\n\u009d\u009b"), 0)
-        self.assertEqual(err.getvalue(), "ais: work]0;x\n")
-        self.assertEqual(out.getvalue(), "\033]0;claude (work]0;x)\007")
+            self.assertEqual(self.run_ok(label="second\007ary\033]0;x\x7f\n\u009d\u009b"), 0)
+        self.assertEqual(err.getvalue(), "ais: secondary]0;x\n")
+        self.assertEqual(out.getvalue(), "\033]0;claude (secondary]0;x)\007")
 
     def test_previous_handlers_restored(self):
         sigs = (signal.SIGINT, signal.SIGQUIT, signal.SIGHUP, signal.SIGTERM)
@@ -168,7 +168,7 @@ class InProcessTest(TempHomeCase):
         def boom():
             raise RuntimeError("mutex release failed")
         with self.assertRaises(AisError) as cm:
-            run_claude(["no-such-claude-xyz"], dict(os.environ), self.home, "work", boom)
+            run_claude(["no-such-claude-xyz"], dict(os.environ), self.home, "secondary", boom)
         self.assertEqual(cm.exception.code, 69)
 
     def test_sigterm_before_child_exists_is_replayed(self):
@@ -179,7 +179,7 @@ class InProcessTest(TempHomeCase):
             return real(*a, **kw)
         env = dict(os.environ, FAKE_READY=str(self.home / "ready"), FAKE_STOP=str(self.home / "stop"))
         with mock.patch.object(runner.subprocess, "Popen", popen):
-            rc = run_claude([str(FAKES / "claude_trap")], env, self.home, "work", lambda: None)
+            rc = run_claude([str(FAKES / "claude_trap")], env, self.home, "secondary", lambda: None)
         self.assertEqual(rc, 143)
 
 
@@ -187,7 +187,7 @@ class SpawnErrorTest(TempHomeCase):
     def run_bad(self, cmd, cwd):
         calls = []
         with self.assertRaises(AisError) as cm:
-            run_claude(cmd, dict(os.environ), cwd, "work", lambda: calls.append(1))
+            run_claude(cmd, dict(os.environ), cwd, "secondary", lambda: calls.append(1))
         self.assertEqual(calls, [1])  # the mutex is released even though nothing started
         self.assertEqual(cm.exception.code, 69)
         return cm.exception.message

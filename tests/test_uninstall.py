@@ -17,18 +17,18 @@ def snapshot(root):
 class UninstallTest(TempHomeCase):
     def setUp(self):
         super().setUp()
-        self.work = str(self.home / ".claude-work")
+        self.secondary = str(self.home / ".claude-secondary")
         self.ais_dir.mkdir(parents=True)
         (self.ais_dir / "config.json").write_text(json.dumps({
-            "version": 1, "default": "personal", "accounts": {
-                "personal": {"label": "Personal", "provider": "claude", "credDir": None},
-                "work": {"label": "Work", "provider": "claude", "credDir": self.work}}}))
+            "version": 1, "default": "primary", "accounts": {
+                "primary": {"label": "Primary", "provider": "claude", "credDir": None},
+                "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary}}}))
         (self.ais_dir / "ais.log").write_text("x\n")
         self.claude = self.home / ".claude"
         self.claude.mkdir()
         (self.claude / "keep.txt").write_text("keep")
         (self.home / ".claude.json").write_text("{}")
-        (self.home / ".claude-accounts" / "work").mkdir(parents=True)
+        (self.home / ".claude-accounts" / "secondary").mkdir(parents=True)
         self.plugin = self.home / "plugins" / "ais.5m.py"
         self.plugin.parent.mkdir()
         self.plugin.write_text("plugin")
@@ -80,9 +80,9 @@ class UninstallTest(TempHomeCase):
         self.assertEqual(code, 0)
         self.assertEqual((self.claude / "keep.txt").read_text(), "keep")
         self.assertTrue((self.home / ".claude.json").exists())
-        self.assertTrue((self.home / ".claude-accounts" / "work").is_dir())
-        self.assertIn(self.work, out)
-        self.assertIn(keychain_service(self.work), out)  # the hint; `security` is never run
+        self.assertTrue((self.home / ".claude-accounts" / "secondary").is_dir())
+        self.assertIn(self.secondary, out)
+        self.assertIn(keychain_service(self.secondary), out)  # the hint; `security` is never run
         self.assertFalse(log.exists() and log.read_text())  # `security` never ran
 
     def test_uninstall_removes_recorded_plugin_only(self):
@@ -278,18 +278,18 @@ class UninstallTest(TempHomeCase):
 
     def test_uninstall_default_only_config_has_no_generic_lines(self):
         (self.ais_dir / "config.json").write_text(json.dumps({
-            "version": 1, "default": "personal", "accounts": {
-                "personal": {"label": "Personal", "provider": "claude", "credDir": None}}}))
+            "version": 1, "default": "primary", "accounts": {
+                "primary": {"label": "Primary", "provider": "claude", "credDir": None}}}))
         code, out, err = self.ais("", "--dry-run")
         self.assertEqual(code, 0, err)
         self.assertNotIn("<account>", out)
         self.assertNotIn("Keychain", out)
 
     def test_uninstall_lists_desktop_folders(self):
-        folder = self.home / "Library" / "Application Support" / "Claude-ais-work"
+        folder = self.home / "Library" / "Application Support" / "Claude-ais-secondary"
         code, out, err = self.ais("", "--dry-run")
         self.assertEqual(code, 0, err)
-        self.assertIn("%s: your Work Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)
+        self.assertIn("%s: your Secondary Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)
         self.assertEqual(out.count("Desktop data folder"), 1)  # the default account has none
         (self.ais_dir / "config.json").unlink()
         code, out, err = self.ais("", "--dry-run")
@@ -300,10 +300,10 @@ class UninstallTest(TempHomeCase):
     def test_uninstall_lists_a_default_folder_override_without_failing(self):
         folder = str(self.home / "Library" / "Application Support" / "Claude")
         (self.ais_dir / "config.json").write_text(json.dumps({
-            "version": 1, "default": "personal", "accounts": {
-                "personal": {"label": "Personal", "provider": "claude", "credDir": None},
-                "work": {"label": "Work", "provider": "claude", "credDir": self.work,
+            "version": 1, "default": "primary", "accounts": {
+                "primary": {"label": "Primary", "provider": "claude", "credDir": None},
+                "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary,
                          "desktop_data_dir": folder}}}))
         code, out, err = self.ais("", "--dry-run")
         self.assertEqual(code, 0, err)
-        self.assertIn("%s: your Work Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)
+        self.assertIn("%s: your Secondary Desktop data folder (kept; it holds the Desktop sign-in)" % folder, out)

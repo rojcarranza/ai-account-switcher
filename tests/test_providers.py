@@ -23,7 +23,7 @@ class ProvidersTest(TempHomeCase):
         self.folder = self.home / "proj"
         self.roots = {"home": self.home, "managed": self.home / "managed",
                       "managed_prefs": self.home / "prefs"}
-        self.personal = Account("personal", "Personal", "claude", None)
+        self.primary = Account("primary", "Primary", "claude", None)
 
     def risks(self, env=None, args=()):
         return self.p.billing_risks(env or {}, self.folder, list(args), self.roots)
@@ -47,27 +47,27 @@ class ProvidersTest(TempHomeCase):
         for value in ("/x", ""):
             with self.subTest(value=value):
                 base = {"PATH": "/bin", SLOT: value}
-                env, warnings = self.p.env_for(self.personal, base)
+                env, warnings = self.p.env_for(self.primary, base)
                 self.assertNotIn(SLOT, env)
                 self.assertEqual(env["PATH"], "/bin")
                 self.assertEqual(len(warnings), 1)
                 self.assertIn(SLOT, warnings[0])
                 self.assertIn(SLOT, base)  # base_env untouched
-        env, warnings = self.p.env_for(self.personal, {"PATH": "/bin"})
+        env, warnings = self.p.env_for(self.primary, {"PATH": "/bin"})
         self.assertEqual((env, warnings), ({"PATH": "/bin"}, []))
 
     def test_env_extra_sets_exact_cred_dir_string(self):
         cred = "/Users/roj/.claude-accounts/wörk"
-        work = Account("work", "Work", "claude", cred)
+        secondary = Account("secondary", "Secondary", "claude", cred)
         base = {SLOT: "/other"}
-        env, warnings = self.p.env_for(work, base)
+        env, warnings = self.p.env_for(secondary, base)
         self.assertEqual(env[SLOT], cred)
         self.assertEqual(warnings, [])
         self.assertEqual(base, {SLOT: "/other"})
 
     def test_env_removes_config_dir_with_warning(self):
-        work = Account("work", "Work", "claude", "/w")
-        for account in (self.personal, work):
+        secondary = Account("secondary", "Secondary", "claude", "/w")
+        for account in (self.primary, secondary):
             with self.subTest(account=account.name):
                 base = {"CLAUDE_CONFIG_DIR": "/c"}
                 env, warnings = self.p.env_for(account, base)

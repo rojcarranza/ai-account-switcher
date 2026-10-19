@@ -5,10 +5,10 @@ Depends on: the Desktop spike in `docs/spike-results.md` (2026-10-16).
 
 ## Context
 The user wants ais to replace Claude Switcher, including its second Claude
-Desktop window for the other account, so Personal and Work Desktop run side
+Desktop window for the other account, so Primary and Secondary Desktop run side
 by side (brief MVP bullet 1 and non-goal 1, changed 2026-10-16; design
 `docs/superpowers/specs/2026-10-16-ais-desktop-design.md`). The spike showed:
-- Claude Switcher runs its Work Desktop as
+- Claude Switcher runs its Secondary Desktop as
   `/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=<…>/Claude-work`.
 - `open -n -a Claude --args --user-data-dir=<new folder>` starts a separate
   instance that keeps its own sign-in across restarts and does not touch the
@@ -34,7 +34,7 @@ by side (brief MVP bullet 1 and non-goal 1, changed 2026-10-16; design
   `docs/migrate-from-claude-switcher.md`, not a command.
 
 ## Alternatives considered
-- **Reuse Claude Switcher's `Claude-work` folder:** keeps the Work Desktop
+- **Reuse Claude Switcher's `Claude-secondary` folder:** keeps the Secondary Desktop
   sign-in and data, but ties ais to another app's folder; the user chose a
   fresh folder.
 - **One Desktop that switches accounts and lists both accounts' sessions:**

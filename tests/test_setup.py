@@ -23,7 +23,7 @@ def tree(root):
 class SetupTest(TempHomeCase):
     def setUp(self):
         super().setUp()
-        self.work = str(self.home / ".claude-accounts" / "work")
+        self.secondary = str(self.home / ".claude-accounts" / "secondary")
         self.calls = self.home / "calls.log"
         os.environ["FAKE_CALL_LOG"] = str(self.calls)
         self.addCleanup(os.environ.pop, "FAKE_CALL_LOG", None)
@@ -56,7 +56,7 @@ class SetupTest(TempHomeCase):
         self.assertEqual(code, 65)
         for part in ("config.json", ".lock", "cache.json", "ais.log"):
             self.assertIn(part, out)
-        self.assertIn("  %s/ (empty, mode 0700)\n" % self.work, out)  # the listing, not the prompt default
+        self.assertIn("  %s/ (empty, mode 0700)\n" % self.secondary, out)  # the listing, not the prompt default
         self.assertEqual(tree(self.home), before)
         self.assertFalse(self.ais_dir.exists())
         self.assertEqual(self.calls_text(), "")
@@ -72,15 +72,15 @@ class SetupTest(TempHomeCase):
         text = out + err
         self.assertIn("1) %s" % (root / "alpha"), text)
         self.assertIn("2) %s" % (root / "zeta"), text)
-        self.assertEqual(self.config()["accounts"]["work"]["credDir"], str(root / "zeta"))
+        self.assertEqual(self.config()["accounts"]["secondary"]["credDir"], str(root / "zeta"))
         self.assertIn("slot=%s" % (root / "zeta"), self.calls_text())
 
     def test_setup_defaults_write_config_schema(self):
         code, _, _ = self.ais(BLANK + "y\n")
         self.assertEqual(code, 0)
-        self.assertEqual(self.config(), {"version": 1, "default": "personal", "accounts": {
-            "personal": {"label": "Personal", "provider": "claude", "credDir": None},
-            "work": {"label": "Work", "provider": "claude", "credDir": self.work}},
+        self.assertEqual(self.config(), {"version": 1, "default": "primary", "accounts": {
+            "primary": {"label": "Primary", "provider": "claude", "credDir": None},
+            "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary}},
             "cross_account_ack": {}, "menu_privacy": False})
         self.assertEqual(stat.S_IMODE((self.ais_dir / "config.json").stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.ais_dir.stat().st_mode), 0o700)
@@ -100,35 +100,35 @@ class SetupTest(TempHomeCase):
         self.assertIn("config.json", err)
 
     def test_setup_keeps_desktop_data_dir_of_the_same_extra_account(self):
-        folder = str(self.home / "Library" / "Application Support" / "Claude-Work")
+        folder = str(self.home / "Library" / "Application Support" / "Claude-Secondary")
         self.ais_dir.mkdir(parents=True)
         (self.ais_dir / "config.json").write_text(json.dumps({"accounts": {
-            "work": {"desktop_data_dir": folder}, "other": {"desktop_data_dir": folder}}}))
+            "secondary": {"desktop_data_dir": folder}, "other": {"desktop_data_dir": folder}}}))
         self.assertEqual(self.ais(BLANK + "y\n")[0], 0)
-        self.assertEqual(self.config()["accounts"]["work"]["desktop_data_dir"], folder)
-        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["personal"])
-        (self.ais_dir / "config.json").write_text(json.dumps({"accounts": {"personal": {"desktop_data_dir": folder}}}))
+        self.assertEqual(self.config()["accounts"]["secondary"]["desktop_data_dir"], folder)
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["primary"])
+        (self.ais_dir / "config.json").write_text(json.dumps({"accounts": {"primary": {"desktop_data_dir": folder}}}))
         self.assertEqual(self.ais(BLANK + "y\n")[0], 0)  # picked as default: dropped
-        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["personal"])
-        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["work"])
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["primary"])
+        self.assertNotIn("desktop_data_dir", self.config()["accounts"]["secondary"])
 
     def test_setup_logs_in_only_missing_accounts(self):
-        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.work
+        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.secondary
         code, _, _ = self.ais(BLANK + "y\n")
         self.assertEqual(code, 0)
         self.assertEqual(self.calls_text(), (
             "claude auth status --json\nslot=<unset>\n"
             "claude auth status --json\nslot=%s\n"
-            "claude auth login\nslot=%s\n" % (self.work, self.work)))
+            "claude auth login\nslot=%s\n" % (self.secondary, self.secondary)))
         os.environ["FAKE_CLAUDE_LOGIN_RC"] = "3"
         code, out, err = self.ais(BLANK + "y\n")
         self.assertEqual(code, 3)
-        self.assertIn("ais login work", out + err)
+        self.assertIn("ais login secondary", out + err)
 
     def test_setup_never_writes_inside_cred_dir(self):
         code, _, _ = self.ais(BLANK + "y\n")
         self.assertEqual(code, 0)
-        d = self.home / ".claude-accounts" / "work"
+        d = self.home / ".claude-accounts" / "secondary"
         self.assertEqual(list(d.iterdir()), [])
         self.assertEqual(stat.S_IMODE(d.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(d.parent.stat().st_mode), 0o700)
@@ -163,7 +163,7 @@ class SetupTest(TempHomeCase):
         self.assertEqual(self.calls_text(), "")
         self.assertIn('"credDir": null', out)
         self.assertIn("claude auth status --json", out)
-        self.assertIn("%s=%s claude auth login" % (SLOT, self.work), out)
+        self.assertIn("%s=%s claude auth login" % (SLOT, self.secondary), out)
         self.assertIn(ClaudeProvider.shared_data_note, out)
 
     def test_setup_bad_input_exits_64(self):
@@ -180,7 +180,7 @@ class SetupTest(TempHomeCase):
             self.addCleanup(os.environ.pop, k, None)
         code, out, _ = self.ais(BLANK + "y\n")
         self.assertEqual(code, 0)
-        self.assertIn("run `ais login work`", out)
+        self.assertIn("run `ais login secondary`", out)
         self.assertNotIn("auth login", self.calls_text())
 
     def test_setup_mkdir_failure_exits_73(self):
@@ -210,10 +210,10 @@ class SetupTest(TempHomeCase):
     def test_setup_billing_guard_after_write_prints_retry_hint(self):
         os.environ["ANTHROPIC_API_KEY"] = "x"
         self.addCleanup(os.environ.pop, "ANTHROPIC_API_KEY", None)
-        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.work
+        os.environ["FAKE_CLAUDE_LOGGED_OUT_SLOT"] = self.secondary
         code, _, err = self.ais(BLANK + "y\n")
         self.assertEqual(code, 77)
-        self.assertIn("ais login work", err)
+        self.assertIn("ais login secondary", err)
 
     def test_setup_dry_run_prints_env_warnings(self):
         os.environ[CONFIG_DIR_ENV] = "/x"
@@ -248,7 +248,7 @@ class SetupTest(TempHomeCase):
             code, _, _ = self.ais(BLANK + "y\n")
         self.assertEqual(code, 73)
         self.assertFalse((self.home / ".claude-accounts").exists())
-        self.assertFalse((self.home / ".claude-accounts" / "work").exists())
+        self.assertFalse((self.home / ".claude-accounts" / "secondary").exists())
         self.assertNotIn(".claude-accounts", " ".join(tree(self.home)))
         self.assertLessEqual(set(tree(self.home)) - set(before), {".config", ".config/ais"})
 

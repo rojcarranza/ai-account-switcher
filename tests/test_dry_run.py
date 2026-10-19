@@ -33,7 +33,7 @@ class DryRunTest(SwitchCase):
         self.addCleanup(shutil.rmtree, log_dir)
         log = Path(log_dir) / "calls.log"
         self.env(FAKE_CALL_LOG=str(log))
-        for cmd in (["setup"], ["switch", "work"], ["run", "work"], ["login", "work"], ["desktop", "work"],
+        for cmd in (["setup"], ["switch", "secondary"], ["run", "secondary"], ["login", "secondary"], ["desktop", "secondary"],
                     ["menu", "install"], ["menu", "uninstall"], ["uninstall"]):
             with self.subTest(cmd=cmd[0]):
                 before = tree_hash(self.home)

@@ -25,19 +25,19 @@ ais setup
 Press Enter to take each default:
 
 ```
-Default account name [personal]:
-Label for personal [Personal]:
-Extra account name [work]:
-Label for work [Work]:
-Folder for work (number or path) [/Users/<user>/.claude-accounts/work]:
+Default account name [primary]:
+Label for primary [Primary]:
+Extra account name [secondary]:
+Label for secondary [Secondary]:
+Folder for secondary (number or path) [/Users/<user>/.claude-accounts/secondary]:
 Setup will create:
   /Users/<user>/.config/ais/config.json
   ...
-  /Users/<user>/.claude-accounts/work/ (empty, mode 0700)
+  /Users/<user>/.claude-accounts/secondary/ (empty, mode 0700)
 Create these? [y/N] y
 ```
 
-`personal` is your normal `claude` login. Setup then opens the sign-in for any account that is logged out: sign in to the **work** account there. To redo a sign-in later: `ais login work`.
+`primary` is your normal `claude` login. Setup then opens the sign-in for any account that is logged out: sign in to the **secondary** account there. To redo a sign-in later: `ais login secondary`.
 
 Then two optional steps, both recommended:
 
@@ -46,7 +46,7 @@ ais hook install                      # record every session's account (see belo
 echo 'eval "$(ais shell-init)"' >> ~/.zshrc   # pick the account per terminal window
 ```
 
-**Naming tip:** you type the account name in every command, so keep it short and about the role, not the email: `personal` / `work`, or `pro` / `max`, or `client-acme`. Names are lowercase letters, digits and `-`, up to 32 characters. Put the detail (such as the email) in the label, which is display-only (`ais status`, prompts, the menu).
+**Naming tip:** you type the account name in every command, so keep it short and about the role, not the email: `primary` / `secondary`, or `pro` / `max`, or `client-acme`. Names are lowercase letters, digits and `-`, up to 32 characters. Put the detail (such as the email) in the label, which is display-only (`ais status`, prompts, the menu).
 
 ## Switch when you hit the limit
 
@@ -62,25 +62,25 @@ That resumes the newest session in this folder on the other account. ais knows w
 The first switch from one account to the other asks once:
 
 ```
-ais: the full transcript of session 11587d78-f810-4c64-870f-d7c9c6058ce2 (used under Personal) will be sent under Work.
-ais: this is asked once for personal->work.
+ais: the full transcript of session 11587d78-f810-4c64-870f-d7c9c6058ce2 (used under Primary) will be sent under Secondary.
+ais: this is asked once for primary->secondary.
 Continue? [y/N]
 ```
 
 Not sure what it will do? Add `--dry-run`:
 
 ```
-$ ais switch work --dry-run
+$ ais switch secondary --dry-run
 session 11587d78-f810-4c64-870f-d7c9c6058ce2
 folder /Users/<user>/Dev/projects/ai-account-switcher
-account work
-CLAUDE_SECURESTORAGE_CONFIG_DIR=/Users/<user>/.claude-accounts/work claude --resume 11587d78-f810-4c64-870f-d7c9c6058ce2
+account secondary
+CLAUDE_SECURESTORAGE_CONFIG_DIR=/Users/<user>/.claude-accounts/secondary claude --resume 11587d78-f810-4c64-870f-d7c9c6058ce2
 ```
 
 Other ways to pick the session:
 
 ```bash
-ais switch work                                            # resume on a named account (also after a crash)
+ais switch secondary                                       # resume on a named account (also after a crash)
 ais switch --pick                                          # choose from the 5 newest in this folder
 ais switch --session 11587d78-f810-4c64-870f-d7c9c6058ce2  # a specific one
 ```
@@ -101,17 +101,17 @@ Add this line to `~/.zshrc` once, then open a new terminal:
 eval "$(ais shell-init)"
 ```
 
-In any terminal app, `ais use work` sets that window to the work account and starts `claude` on it. After that, `claude` in the same window runs on work too, through `ais run`. Other windows keep their own account; a window you never set uses the default account. `ais use` on its own prints the window's account. `ais use --copy work` puts `ais use work` on the clipboard (the menu's `Copy "ais use work"` item does the same).
+In any terminal app, `ais use secondary` sets that window to the secondary account and starts `claude` on it. After that, `claude` in the same window runs on secondary too, through `ais run`. Other windows keep their own account; a window you never set uses the default account. `ais use` on its own prints the window's account. `ais use --copy secondary` puts `ais use secondary` on the clipboard (the menu's `Copy "ais use secondary"` item does the same).
 
 ## Everyday commands
 
 | Command | Example |
 |---|---|
-| Start a new session on an account (args after `--` go to `claude`) | `ais run work -- --model opus` |
-| Set this terminal window's account and start `claude` | `ais use work` |
+| Start a new session on an account (args after `--` go to `claude`) | `ais run secondary -- --model opus` |
+| Set this terminal window's account and start `claude` | `ais use secondary` |
 | Check both accounts and the newest session here (`--json` for scripts) | `ais status` |
-| Sign an account in again | `ais login work` |
-| Open Claude Desktop as an account, side by side with the other | `ais desktop work` |
+| Sign an account in again | `ais login secondary` |
+| Open Claude Desktop as an account, side by side with the other | `ais desktop secondary` |
 | Record every session's account through a Claude Code hook | `ais hook install` / `ais hook uninstall` |
 | SwiftBar menu bar status and one-click resume (needs SwiftBar) | `ais menu install` / `ais menu uninstall` |
 | Remove ais's files and its hook (never the rest of `~/.claude`, or the Keychain) | `ais uninstall` |
@@ -119,9 +119,9 @@ In any terminal app, `ais use work` sets that window to the work account and sta
 `ais status` prints:
 
 ```
-  personal (Personal): credential present: yes
-  work (Work): credential present: yes
-session 11587d78-f810-4c64-870f-d7c9c6058ce2: last used personal, not open
+  primary (Primary): credential present: yes
+  secondary (Secondary): credential present: yes
+session 11587d78-f810-4c64-870f-d7c9c6058ce2: last used primary, not open
 self-check: ok
 ```
 
@@ -136,7 +136,7 @@ Every command that changes something takes `--dry-run`.
 - Under each closed session, `Resume in <other account>`, which runs `ais switch --session <id> <account>` in a new Terminal window; an open session shows `Quit Claude in <folder> to resume` instead.
 - `Open <label> Desktop`, `Open <label> Terminal` (runs `ais run <account>`) and `Copy "ais use <account>"` for each account.
 
-Set `"menu_privacy": true` in `~/.config/ais/config.json` to show only labels, credential states and session counts. If your Work Desktop already lives in another folder (for example Claude Switcher's `Claude-Work`), set `"desktop_data_dir"` on that account to its absolute path.
+Set `"menu_privacy": true` in `~/.config/ais/config.json` to show only labels, credential states and session counts. If your Secondary Desktop already lives in another folder (for example Claude Switcher's `Claude-Work`), set `"desktop_data_dir"` on that account to its absolute path.
 
 ## Good to know
 

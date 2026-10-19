@@ -25,18 +25,18 @@ for name in ("switch.lock", ".lock"):
 
 class AckTest(SwitchCase):
     def test_ack_per_pair_prompted_once(self):
-        self.last_used("personal")
+        self.last_used("primary")
         code, _, err = self.ais("switch", stdin="Yes\n")
         self.assertEqual(code, 0, err)
         self.assertIn("full transcript", err)
-        self.assertIn("Work", err)
+        self.assertIn("Secondary", err)
         self.assertEqual(self.argv(), ["--resume", UUID])
         cfg = self.config()
-        self.assertEqual(cfg["cross_account_ack"], {"personal->work": date.today().isoformat()})
-        self.assertEqual((cfg["version"], cfg["default"], cfg["menu_privacy"]), (1, "personal", False))
-        self.assertEqual(sorted(cfg["accounts"]), ["personal", "work"])
+        self.assertEqual(cfg["cross_account_ack"], {"primary->secondary": date.today().isoformat()})
+        self.assertEqual((cfg["version"], cfg["default"], cfg["menu_privacy"]), (1, "primary", False))
+        self.assertEqual(sorted(cfg["accounts"]), ["primary", "secondary"])
         # same pair again: no prompt (EOF would exit 65)
-        self.last_used("personal")
+        self.last_used("primary")
         code, _, err = self.ais("switch", stdin="")
         self.assertEqual(code, 0, err)
         self.assertNotIn("full transcript", err)
@@ -44,28 +44,28 @@ class AckTest(SwitchCase):
         code, _, err = self.ais("switch", stdin="")
         self.assertEqual(code, 65)
         self.assertIn("full transcript", err)
-        self.assertIn("Personal", err)
+        self.assertIn("Primary", err)
 
     def test_ack_keeps_config_readable(self):
-        self.last_used("personal")
+        self.last_used("primary")
         code, _, err = self.ais("switch", stdin="y\n")
         self.assertEqual(code, 0, err)
         text = (self.ais_dir / "config.json").read_text()
         self.assertIn('\n  "accounts": {\n', text)  # indent=2, one key per line
 
     def test_ack_declined_65(self):
-        self.last_used("personal")
+        self.last_used("primary")
         before = self.config()
         for answer in ("n\n", "", "yess\n", "\n"):
-            code, _, err = self.ais("switch", "work", stdin=answer)
+            code, _, err = self.ais("switch", "secondary", stdin=answer)
             self.assertEqual(code, 65, answer)
         self.assertIsNone(self.argv())
         self.assertEqual(self.config(), before)
-        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "personal")
+        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "primary")
         self.assertEqual((self.snapshots(), self.log_lines()), ([], []))
 
     def test_ack_prompt_not_under_lock(self):
-        self.last_used("personal")
+        self.last_used("primary")
         seen = []
 
         class Prompt(io.StringIO):
