@@ -113,6 +113,8 @@ class RenderTest(SwitchCase):
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
         self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS, out)
+        self.assertIn('Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+                      ' sfimage=doc.on.clipboard' % AIS, out)
 
     def test_label_leading_dashes_stripped(self):
         s = status()
@@ -343,7 +345,7 @@ class UsageRenderTest(SwitchCase):
 
 
 class IconTest(SwitchCase):
-    """FR-4.22: fixed SF Symbol names on headers, Sessions, Resume, Open Desktop and Copy items."""
+    """FR-4.22, FR-4.24: fixed SF Symbol names on headers, Sessions, Resume, Open Desktop and Copy items."""
 
     def test_icons(self):
         lines = menu.render(status(), False, AIS, NOW).split("\n")
