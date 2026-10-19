@@ -17,7 +17,7 @@ flowchart LR
   desk[Claude Desktop<br/>one instance per account, ADR-0008]
   kc[(macOS Keychain)]
   shared[(~/.claude shared brain)]
-  anth[Anthropic API<br/>personal / work account]
+  anth[Anthropic API<br/>primary / secondary account]
   user -->|ais switch, run, status| ais
   user -->|clicks menu| bar
   bar -->|exec ais menu render| ais
@@ -181,7 +181,7 @@ Fresh-context review 2026-10-16 (red-team subagent, files only). The user accept
 - [major] M6 plugin needs `jq`/`timeout` → accepted: one-line plugin, logic in `menu.py`; ADR-0007 updated.
 - [major] M7 status every minute may prompt or be slow → accepted: cache, Keychain-only check in the menu, G-1(h).
 - [major] M8 billing guard gaps → accepted: `CLAUDE_CODE_OAUTH_TOKEN`, all settings scopes, `--settings`.
-- [major] M9 work plan with no decision rule → accepted: G-3 rule, per-pair ack, shared-memory statement.
+- [major] M9 secondary plan with no decision rule → accepted: G-3 rule, per-pair ack, shared-memory statement.
 - [major] M10 accepted ADRs on unproven premises → accepted in part: ADRs stay Accepted with "Depends on: G-1"; G-1(g) to (j) added; global-lock fallback pre-decided.
 - [major] M11 full `~/.claude` backup → accepted: dropped; session snapshots with subagent files.
 - [major] M12 CI never runs macOS → accepted: one `macos-latest` job; ADR-0004 updated.

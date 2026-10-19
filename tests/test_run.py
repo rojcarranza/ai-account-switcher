@@ -20,12 +20,12 @@ OLD = "55555555-5555-4555-8555-555555555555"
 class RunTest(TempHomeCase):
     def setUp(self):
         super().setUp()
-        self.work = str(self.home / ".claude-work")
+        self.secondary = str(self.home / ".claude-secondary")
         self.ais_dir.mkdir(parents=True)
         (self.ais_dir / "config.json").write_text(json.dumps({
-            "version": 1, "default": "personal", "accounts": {
-                "personal": {"label": "Personal", "provider": "claude", "credDir": None},
-                "work": {"label": "Work", "provider": "claude", "credDir": self.work}}}))
+            "version": 1, "default": "primary", "accounts": {
+                "primary": {"label": "Primary", "provider": "claude", "credDir": None},
+                "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary}}}))
         self.proj = self.home / "proj"
         self.proj.mkdir()
         old = os.getcwd()
@@ -72,11 +72,11 @@ class RunTest(TempHomeCase):
         self.assertEqual(self.slot(), "slot=<unset>")
 
     def test_run_named_account_sets_slot(self):
-        self.ais("run", "work")
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.ais("run", "secondary")
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
 
     def test_run_passes_args(self):
-        code, _, _ = self.ais("run", "work", "--", "--model", "opus", "-p", "--flag=x y")
+        code, _, _ = self.ais("run", "secondary", "--", "--model", "opus", "-p", "--flag=x y")
         self.assertEqual(code, 0)
         self.assertEqual(self.argv(), ["--model", "opus", "-p", "--flag=x y"])
 
@@ -113,15 +113,15 @@ class RunTest(TempHomeCase):
         self.assertEqual(self.argv(), ["--settings", "f.json"])
 
     def test_run_extra_positional_exits_64(self):
-        code, _, _ = self.ais("run", "work", "extra")
+        code, _, _ = self.ais("run", "secondary", "extra")
         self.assertEqual(code, 64)
         self.assertIsNone(self.argv())
 
     def test_run_records_last_used_after_exit(self):
-        code, _, _ = self.ais("run", "work")
+        code, _, _ = self.ais("run", "secondary")
         self.assertEqual(code, 0)
         rec = self.state()["sessions"][str(self.transcript)]
-        self.assertEqual(rec["account"], "work")
+        self.assertEqual(rec["account"], "secondary")
         self.assertRegex(rec["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual(self.log_lines()[0]["session_id"], UUID)
 
@@ -129,7 +129,7 @@ class RunTest(TempHomeCase):
         other = self.home / "a.jsonl"  # must exist: FR-5.6 drops records of missing transcripts
         other.write_text("")
         (self.ais_dir / "state.json").write_text(json.dumps(
-            {"other": 1, "sessions": {str(other): {"account": "work", "at": "t"}}}))
+            {"other": 1, "sessions": {str(other): {"account": "secondary", "at": "t"}}}))
         self.ais("run")
         st = self.state()
         self.assertEqual(st["other"], 1)
@@ -138,7 +138,7 @@ class RunTest(TempHomeCase):
 
     def test_run_drops_entries_for_missing_transcripts(self):
         (self.ais_dir / "state.json").write_text(json.dumps(
-            {"sessions": {str(self.home / "gone.jsonl"): {"account": "work", "at": "t"}}}))
+            {"sessions": {str(self.home / "gone.jsonl"): {"account": "secondary", "at": "t"}}}))
         self.ais("run")
         self.assertEqual(list(self.state()["sessions"]), [str(self.transcript)])
 
@@ -161,10 +161,10 @@ class RunTest(TempHomeCase):
         self.assertEqual(self.argv(), ["--dry-run"])
 
     def test_run_trailing_double_dash_means_no_args(self):
-        code, _, _ = self.ais("run", "work", "--")
+        code, _, _ = self.ais("run", "secondary", "--")
         self.assertEqual(code, 0)
         self.assertEqual(self.argv(), [])
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
 
     def test_run_non_object_sessions_warns_and_keeps_exit_code(self):
         (self.ais_dir / "state.json").write_text(json.dumps({"sessions": []}))
@@ -184,15 +184,15 @@ class RunTest(TempHomeCase):
 
     def test_run_billing_risk_77(self):
         os.environ["ANTHROPIC_API_KEY"] = "x"
-        code, _, err = self.ais("run", "work")
+        code, _, err = self.ais("run", "secondary")
         self.assertEqual(code, 77)
         self.assertIn("ANTHROPIC_API_KEY", err)
         self.assertIsNone(self.argv())
 
     def test_run_dry_run(self):
-        code, out, _ = self.ais("run", "work", "--dry-run", "--", "--model", "o p")
+        code, out, _ = self.ais("run", "secondary", "--dry-run", "--", "--model", "o p")
         self.assertEqual(code, 0)
-        self.assertEqual(out, "%s=%s claude --model 'o p'\n" % (SLOT, self.work))
+        self.assertEqual(out, "%s=%s claude --model 'o p'\n" % (SLOT, self.secondary))
         self.assertIsNone(self.argv())
         self.assertEqual(self.state(), {})
         self.assertEqual(self.log_lines(), [])

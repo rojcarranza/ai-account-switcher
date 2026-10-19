@@ -40,7 +40,7 @@ def line(content, cwd, **extra):
 class SwitchCase(TempHomeCase):
     def setUp(self):
         super().setUp()
-        self.work = str(self.home / ".claude-work")
+        self.secondary = str(self.home / ".claude-secondary")
         self.ais_dir.mkdir(parents=True)
         self.write_config()
         self.proj = self.home / "proj"
@@ -69,10 +69,10 @@ class SwitchCase(TempHomeCase):
             os.environ[k] = v
 
     def write_config(self, extra_accounts=None, acks=None):
-        accounts = {"personal": {"label": "Personal", "provider": "claude", "credDir": None},
-                    "work": {"label": "Work", "provider": "claude", "credDir": self.work}}
+        accounts = {"primary": {"label": "Primary", "provider": "claude", "credDir": None},
+                    "secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary}}
         accounts.update(extra_accounts or {})
-        cfg = {"version": 1, "default": "personal", "accounts": accounts, "menu_privacy": False}
+        cfg = {"version": 1, "default": "primary", "accounts": accounts, "menu_privacy": False}
         if acks is not None:
             cfg["cross_account_ack"] = acks
         (self.ais_dir / "config.json").write_text(json.dumps(cfg))
@@ -125,30 +125,30 @@ class SwitchCase(TempHomeCase):
 
 class SwitchTest(SwitchCase):
     def test_switch_resumes_on_other_account(self):
-        self.write_config(acks={"personal->work": "2026-10-01"})
-        self.last_used("personal")
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
+        self.last_used("primary")
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.argv(), ["--resume", UUID])
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
         self.assertEqual(self.claude_cwd(), os.path.realpath(str(self.proj)))
-        self.assertIn("ais: Work", err)
+        self.assertIn("ais: Secondary", err)
         rec = self.state()["sessions"][str(self.transcript)]
-        self.assertEqual(rec["account"], "work")
+        self.assertEqual(rec["account"], "secondary")
         self.assertRegex(rec["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual(len(self.snapshots()), 1)
         log = self.log_lines()
         self.assertEqual([(x["command"], x["account"], x["session_id"], x["result"]) for x in log],
-                         [("switch", "work", UUID, "exit 0")])
-        # and back again: the other account of work is personal (default slot: variable unset)
-        self.write_config(acks={"personal->work": "2026-10-01", "work->personal": "2026-10-01"})
+                         [("switch", "secondary", UUID, "exit 0")])
+        # and back again: the other account of secondary is primary (default slot: variable unset)
+        self.write_config(acks={"primary->secondary": "2026-10-01", "secondary->primary": "2026-10-01"})
         code, _, _ = self.ais("switch")
         self.assertEqual((code, self.slot()), (0, "slot=<unset>"))
 
     def test_switch_passes_claude_exit_code(self):
-        self.last_used("work")
+        self.last_used("secondary")
         self.env(FAKE_CLAUDE_RUN_RC="5")
-        code, _, _ = self.ais("switch", "work")
+        code, _, _ = self.ais("switch", "secondary")
         self.assertEqual(code, 5)
         self.assertEqual(self.log_lines()[0]["result"], "exit 5")
 
@@ -156,69 +156,69 @@ class SwitchTest(SwitchCase):
         # FR-5.6: the last-used update also drops records whose transcript is gone
         gone = str(self.home / "gone.jsonl")
         (self.ais_dir / "state.json").write_text(json.dumps({"menu_plugin": "/p", "sessions": {
-            str(self.transcript): {"account": "work", "at": "t"}, gone: {"account": "work", "at": "t"}}}))
-        code, _, err = self.ais("switch", "work")
+            str(self.transcript): {"account": "secondary", "at": "t"}, gone: {"account": "secondary", "at": "t"}}}))
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 0, err)
         self.assertEqual(list(self.state()["sessions"]), [str(self.transcript)])
         self.assertEqual(self.state()["menu_plugin"], "/p")
 
     def test_switch_unknown_last_used_assumes_default_account(self):
         # a session started with plain `claude` has no record: it ran on the default account
-        self.write_config(acks={"personal->work": "2026-10-01"})
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.slot(), "slot=" + self.work)
-        self.assertIn("assuming it last ran on Personal", err)
-        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
+        self.assertIn("assuming it last ran on Primary", err)
+        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "secondary")
 
     def test_switch_unknown_last_used_ignores_terminal_account(self):
         # #81: AIS_ACCOUNT may be another window's account; the SessionStart hook records sessions instead
-        self.env(AIS_ACCOUNT="work")
-        self.write_config(acks={"personal->work": "2026-10-01"})
+        self.env(AIS_ACCOUNT="secondary")
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.slot(), "slot=" + self.work)
-        self.assertIn("assuming it last ran on Personal", err)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
+        self.assertIn("assuming it last ran on Primary", err)
         self.assertNotIn("ais use", err)
 
     def test_switch_named_account_unknown_last_used_ignores_terminal_account(self):
         # FR-3.2 with #81: naming the default account resumes there without the prompt, whatever AIS_ACCOUNT says
-        self.env(AIS_ACCOUNT="work")
-        code, _, err = self.ais("switch", "work", stdin="")  # EOF declines personal->work, records nothing
+        self.env(AIS_ACCOUNT="secondary")
+        code, _, err = self.ais("switch", "secondary", stdin="")  # EOF declines primary->secondary, records nothing
         self.assertEqual(code, 65)
-        self.assertIn("used under Personal) will be sent under Work", err)
-        code, _, err = self.ais("switch", "personal", stdin="")
+        self.assertIn("used under Primary) will be sent under Secondary", err)
+        code, _, err = self.ais("switch", "primary", stdin="")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.slot(), "slot=<unset>")
         self.assertNotIn("will be sent under", err)
 
     def test_switch_unknown_last_used_ignores_unconfigured_terminal_account(self):
         self.env(AIS_ACCOUNT="gone")
-        self.write_config(acks={"personal->work": "2026-10-01"})
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
         code, _, err = self.ais("switch")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.slot(), "slot=" + self.work)
-        self.assertIn("assuming it last ran on Personal", err)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
+        self.assertIn("assuming it last ran on Primary", err)
 
     def test_switch_unknown_last_used_still_asks_ack(self):
-        code, _, err = self.ais("switch", stdin="")  # FR-2.8 for personal->work: EOF declines
+        code, _, err = self.ais("switch", stdin="")  # FR-2.8 for primary->secondary: EOF declines
         self.assertEqual(code, 65)
-        self.assertIn("will be sent under Work", err)
+        self.assertIn("will be sent under Secondary", err)
         self.assertIsNone(self.argv())
         self.assertEqual(self.snapshots(), [])
 
     def test_switch_named_account_unknown_last_used_asks_ack(self):
         # the menu's Resume click names the account: an unrecorded session still counts as the default's
-        for args in (("switch", "work"), ("switch", "--session", UUID, "work")):
+        for args in (("switch", "secondary"), ("switch", "--session", UUID, "secondary")):
             with self.subTest(args=args):
                 code, _, err = self.ais(*args, stdin="")  # EOF declines
                 self.assertEqual(code, 65)
-                self.assertIn("will be sent under Work", err)
+                self.assertIn("will be sent under Secondary", err)
                 self.assertIsNone(self.argv())
-                self.assertIn("assuming it last ran on Personal", err)
+                self.assertIn("assuming it last ran on Primary", err)
 
     def test_switch_named_default_account_unknown_last_used_no_ack(self):
-        code, _, err = self.ais("switch", "personal", stdin="")  # FR-3.2: same account, no prompt
+        code, _, err = self.ais("switch", "primary", stdin="")  # FR-3.2: same account, no prompt
         self.assertEqual(code, 0, err)
         self.assertEqual(self.slot(), "slot=<unset>")
         self.assertNotIn("will be sent under", err)
@@ -229,7 +229,7 @@ class SwitchTest(SwitchCase):
                                                     "credDir": str(self.home / ".claude-extra")}})
         code, _, err = self.ais("switch", "extra", stdin="")
         self.assertEqual(code, 65)
-        self.assertIn("used under Personal) will be sent under Extra", err)
+        self.assertIn("used under Primary) will be sent under Extra", err)
 
     def test_switch_unknown_last_used_three_accounts_64_without_note(self):
         self.write_config(extra_accounts={"extra": {"label": "Extra", "provider": "claude",
@@ -240,17 +240,17 @@ class SwitchTest(SwitchCase):
         self.assertIsNone(self.argv())
 
     def test_switch_named_same_account_no_ack_prompt(self):
-        self.last_used("work")
-        code, _, err = self.ais("switch", "work", stdin="")  # a prompt would read EOF and exit 65
+        self.last_used("secondary")
+        code, _, err = self.ais("switch", "secondary", stdin="")  # a prompt would read EOF and exit 65
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
         self.assertNotIn("transcript", err)
         self.assertNotIn("cross_account_ack", self.config())
 
     def test_switch_unknown_named_account_64(self):
         code, _, err = self.ais("switch", "nobody")
         self.assertEqual(code, 64)
-        self.assertIn("personal, work", err)
+        self.assertIn("primary, secondary", err)
         self.assertIsNone(self.argv())
 
     def test_pick_lists_five_and_resumes_choice(self):
@@ -258,26 +258,26 @@ class SwitchTest(SwitchCase):
         for n, sid in enumerate(ids):
             self.add_session(sid, self.proj, "task %d" % n, 3000 + n)
         self.add_session(OTHER, self.home / "elsewhere", "elsewhere task", 9000)
-        self.last_used("personal", self.projects / "p" / (ids[5] + ".jsonl"))
-        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
-        code, _, err = self.ais("switch", "--pick", "work", stdin="2\n")
+        self.last_used("primary", self.projects / "p" / (ids[5] + ".jsonl"))
+        self.write_config(acks={"primary->secondary": "2026-10-01"})  # FR-2.8 is not under test here
+        code, _, err = self.ais("switch", "--pick", "secondary", stdin="2\n")
         self.assertEqual(code, 0, err)
         listed = [x for x in err.splitlines() if x[:1].isdigit()]
         self.assertEqual(len(listed), 5)
-        self.assertTrue(listed[0].startswith("1  ") and "task 5" in listed[0] and "personal" in listed[0])
+        self.assertTrue(listed[0].startswith("1  ") and "task 5" in listed[0] and "primary" in listed[0])
         self.assertTrue(listed[1].startswith("2  ") and "task 4" in listed[1] and "unknown" in listed[1])
         self.assertTrue(listed[0].endswith("  -"))
         self.assertNotIn("elsewhere", err)
         self.assertNotIn("task 0", err)
         self.assertEqual(self.argv(), ["--resume", ids[4]])
-        self.assertEqual(self.slot(), "slot=" + self.work)
+        self.assertEqual(self.slot(), "slot=" + self.secondary)
 
     def test_pick_bad_input_64(self):
         for stdin in ("9\n", "0\n", "x\n", "", "-1\n", "1.0\n"):
-            code, _, err = self.ais("switch", "--pick", "work", stdin=stdin)
+            code, _, err = self.ais("switch", "--pick", "secondary", stdin=stdin)
             self.assertEqual(code, 64, stdin)
         self.assertIsNone(self.argv())
-        code, _, err = self.ais("switch", "--pick", "--session", UUID, "work")
+        code, _, err = self.ais("switch", "--pick", "--session", UUID, "secondary")
         self.assertEqual(code, 64)
         self.assertIsNone(self.argv())
 
@@ -285,19 +285,19 @@ class SwitchTest(SwitchCase):
         other = self.home / "other dir"
         other.mkdir()
         self.add_session(OTHER, other, "other task", 1000)
-        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
-        code, _, err = self.ais("switch", "--session", OTHER, "work")
+        self.write_config(acks={"primary->secondary": "2026-10-01"})  # FR-2.8 is not under test here
+        code, _, err = self.ais("switch", "--session", OTHER, "secondary")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.argv(), ["--resume", OTHER])
         self.assertEqual(self.claude_cwd(), os.path.realpath(str(other)))
 
     def test_session_flag_bad_uuid_64(self):
         for bad in ("nope", UUID.replace("-", ""), "{" + UUID + "}", UUID + "x", "../" + UUID):
-            code, _, err = self.ais("switch", "--session", bad, "work")
+            code, _, err = self.ais("switch", "--session", bad, "secondary")
             self.assertEqual(code, 64, bad)
         # a session folder outside the home folder is refused
         self.add_session(OTHER, "/", "root task", 1000)
-        code, _, err = self.ais("switch", "--session", OTHER, "work")
+        code, _, err = self.ais("switch", "--session", OTHER, "secondary")
         self.assertEqual(code, 64)
         self.assertIn("outside", err)
         self.assertIsNone(self.argv())
@@ -306,7 +306,7 @@ class SwitchTest(SwitchCase):
         outside = Path(os.path.realpath(str(self.home))).parent  # a real folder outside HOME
         (self.home / "escape").symlink_to(outside)
         self.add_session(OTHER, self.home / "escape", "escape task", 1000)
-        code, _, err = self.ais("switch", "--session", OTHER, "work")
+        code, _, err = self.ais("switch", "--session", OTHER, "secondary")
         self.assertEqual(code, 64)
         self.assertIn("outside", err)
         self.assertIsNone(self.argv())
@@ -315,7 +315,7 @@ class SwitchTest(SwitchCase):
         (self.home / "afile").write_text("x")
         for folder in (self.home / "afile", ".", "./proj"):  # relative: never resolved against our cwd
             self.add_session(OTHER, folder, "bad folder", 1000)
-            code, _, err = self.ais("switch", "--session", OTHER, "work")
+            code, _, err = self.ais("switch", "--session", OTHER, "secondary")
             self.assertEqual(code, 66, folder)
         self.assertIsNone(self.argv())
 
@@ -324,34 +324,34 @@ class SwitchTest(SwitchCase):
         with mock.patch("os.path.realpath", lambda p: bad if p == bad else os.path.abspath(p)), \
                 mock.patch("pathlib.Path.is_dir", lambda p: True):
             self.add_session(OTHER, bad, "esc task", 1000)
-            code, _, err = self.ais("switch", "--session", OTHER, "work")
+            code, _, err = self.ais("switch", "--session", OTHER, "secondary")
         self.assertEqual(code, 64)
         self.assertIn("outside", err)
         self.assertNotIn("\x1b", err)
         self.assertNotIn("\x07", err)
 
     def test_non_string_last_used_is_unknown(self):
-        self.write_config(acks={"personal->work": "2026-10-01"})
-        for value in (["work"], {"a": 1}, 3, None):
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
+        for value in (["secondary"], {"a": 1}, 3, None):
             (self.ais_dir / "state.json").write_text(json.dumps(
                 {"sessions": {str(self.transcript): {"account": value, "at": "t"}}}))
             code, _, err = self.ais("switch")
-            self.assertEqual((code, self.slot()), (0, "slot=" + self.work), value)
-            self.assertIn("assuming it last ran on Personal", err)
+            self.assertEqual((code, self.slot()), (0, "slot=" + self.secondary), value)
+            self.assertIn("assuming it last ran on Primary", err)
 
     def test_spawn_failure_restores_state_and_logs_error(self):
         os.environ["PATH"] = str(self.home / "nobin") + os.pathsep + "/usr/bin:/bin"
-        self.write_config(acks={"personal->work": "2026-10-01"})  # FR-2.8 is not under test here
-        self.last_used("work")
+        self.write_config(acks={"primary->secondary": "2026-10-01"})  # FR-2.8 is not under test here
+        self.last_used("secondary")
         before = (self.ais_dir / "state.json").read_text()
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 69)
         self.assertEqual(json.loads((self.ais_dir / "state.json").read_text()), json.loads(before))
         self.assertEqual([(x["command"], x["account"], x["session_id"], x["result"]) for x in self.log_lines()],
-                         [("switch", "work", UUID, "error 69")])
+                         [("switch", "secondary", UUID, "error 69")])
         # no previous entry: the record is removed again
         (self.ais_dir / "state.json").unlink()
-        code, _, _ = self.ais("switch", "work")
+        code, _, _ = self.ais("switch", "secondary")
         self.assertEqual(code, 69)
         self.assertEqual(self.state().get("sessions"), {})
 
@@ -365,12 +365,12 @@ class SwitchTest(SwitchCase):
                 return inner.answers.pop(0)
 
         stdin = SlowHuman()
-        stdin.answers = ["1\n", "y\n"]  # pick the session, then acknowledge personal->work
-        self.last_used("personal")
+        stdin.answers = ["1\n", "y\n"]  # pick the session, then acknowledge primary->secondary
+        self.last_used("primary")
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
                 mock.patch("sys.stdin", stdin), mock.patch("time.monotonic", lambda: real() + offset[0]):
-            code = cli.main(["switch", "--pick", "work"])
+            code = cli.main(["switch", "--pick", "secondary"])
         self.assertEqual(code, 0, err.getvalue())
         self.assertEqual(offset[0], 2000)
         self.assertLess(self.log_lines()[0]["tool_seconds"], 1000)
@@ -387,7 +387,7 @@ class SwitchTest(SwitchCase):
         marker = json.dumps({"isApiErrorMessage": True, "error": "rate_limit", "timestamp": "2026-10-16T11:00:00Z"})
         normal = json.dumps({"type": "user", "timestamp": "2026-10-16T11:30:00Z"})
         later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
-        self.assertIsNone(self.limit([marker, normal], [later]))  # limit hit, then work went on
+        self.assertIsNone(self.limit([marker, normal], [later]))  # limit hit, then secondary went on
         self.assertEqual(self.limit([normal, marker, "not json"], [later]), 3610.0)  # stopped at the limit
         self.assertIsNone(self.limit([normal, marker], []))  # nothing appended after the launch
         self.assertIsNone(self.limit([normal], [later]))  # no marker
@@ -403,7 +403,7 @@ class SwitchTest(SwitchCase):
             {"type": "user", "isMeta": True, "timestamp": t})]
         later = json.dumps({"type": "user", "timestamp": "2026-10-16T12:00:10Z"})
         self.assertEqual(self.limit([marker] + noise, [later]), 3610.0)
-        for kind in ("user", "assistant"):  # a conversation line means work went on after the limit
+        for kind in ("user", "assistant"):  # a conversation line means secondary went on after the limit
             convo = json.dumps({"type": kind, "timestamp": "2026-10-16T11:30:00Z"})
             self.assertIsNone(self.limit([marker, noise[0], convo], [later]), kind)
 
@@ -440,81 +440,81 @@ class SwitchTest(SwitchCase):
             self.assertAlmostEqual(got, want, places=5, msg=stamp)
 
     def test_session_not_found_66(self):
-        code, _, err = self.ais("switch", "--session", MISSING, "work")
+        code, _, err = self.ais("switch", "--session", MISSING, "secondary")
         self.assertEqual(code, 66)
         self.assertIn(MISSING, err)
         self.add_session(OTHER, self.home / "gone", "gone task", 1000)  # folder does not exist
-        code, _, err = self.ais("switch", "--session", OTHER, "work")
+        code, _, err = self.ais("switch", "--session", OTHER, "secondary")
         self.assertEqual(code, 66)
         self.assertIsNone(self.argv())
 
     def test_three_accounts_unnamed_64(self):
         self.write_config({"lab": {"label": "Lab", "provider": "claude", "credDir": str(self.home / ".lab")}})
-        self.last_used("personal")
+        self.last_used("primary")
         code, _, err = self.ais("switch")
         self.assertEqual(code, 64)
-        self.assertIn("lab, personal, work", err)
+        self.assertIn("lab, primary, secondary", err)
         self.assertIsNone(self.argv())
 
     def test_nothing_to_resume_66(self):
         empty = self.home / "empty"
         empty.mkdir()
         os.chdir(str(empty))
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 66)
         self.assertIn("nothing to resume in", err)
         self.assertIsNone(self.argv())
-        code, _, err = self.ais("switch", "--pick", "work", stdin="1\n")
+        code, _, err = self.ais("switch", "--pick", "secondary", stdin="1\n")
         self.assertEqual(code, 66)
         self.assertIsNone(self.argv())
 
     def test_open_session_75_with_exit_hint(self):
-        self.last_used("work")
+        self.last_used("secondary")
         self.env(FAKE_PGREP_OUT="4242", FAKE_PS_OUT="4242 claude", FAKE_LSOF_OUT="p4242\nn%s" % self.proj)
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 75)
         self.assertIn("ais: Claude is still running in %s (PID 4242). Type /exit there, then run "
                       "`ais switch` again.\n" % os.path.realpath(str(self.proj)), err)
         self.assertIsNone(self.argv())
         self.assertEqual(self.snapshots(), [])
-        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "work")
+        self.assertEqual(self.state()["sessions"][str(self.transcript)]["account"], "secondary")
         self.assertEqual(self.state()["sessions"][str(self.transcript)]["at"], "t")
         self.assertEqual(self.log_lines(), [])
 
     def test_process_check_failure_warns_and_continues(self):
-        self.last_used("work")
+        self.last_used("secondary")
         self.env(FAKE_PGREP_OUT="4242", FAKE_PS_OUT="", FAKE_PS_RC="2")
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 0)
         self.assertIn("ais: warning: ps failed", err)
         self.assertEqual(self.argv(), ["--resume", UUID])
 
     def test_logged_out_target_still_starts_claude(self):
-        self.last_used("work")
+        self.last_used("secondary")
         self.env(FAKE_SECURITY_RC="44", FAKE_CLAUDE_AUTH_JSON='{"loggedIn": false}')
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.argv(), ["--resume", UUID])
         self.assertNotIn("security", self.calls_text())
         self.assertNotIn("auth status", self.calls_text())
 
     def test_switch_billing_risk_77(self):
-        self.last_used("work")
+        self.last_used("secondary")
         os.environ["ANTHROPIC_API_KEY"] = "x"
-        code, _, err = self.ais("switch", "work")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 77)
         self.assertIn("ANTHROPIC_API_KEY", err)
         self.assertIsNone(self.argv())
-        code, _, _ = self.ais("switch", "work", "--allow-api-key")
+        code, _, _ = self.ais("switch", "secondary", "--allow-api-key")
         self.assertEqual(code, 0)
 
     def test_switch_dry_run_no_prompt_no_writes(self):
-        self.last_used("personal")  # unacknowledged pair: a real switch would prompt
+        self.last_used("primary")  # unacknowledged pair: a real switch would prompt
         before = (self.ais_dir / "state.json").read_text()
-        code, out, err = self.ais("switch", "work", "--dry-run", stdin="")
+        code, out, err = self.ais("switch", "secondary", "--dry-run", stdin="")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "session %s\nfolder %s\naccount work\n%s=%s claude --resume %s\n"
-                         % (UUID, os.path.realpath(str(self.proj)), SLOT, self.work, UUID))
+        self.assertEqual(out, "session %s\nfolder %s\naccount secondary\n%s=%s claude --resume %s\n"
+                         % (UUID, os.path.realpath(str(self.proj)), SLOT, self.secondary, UUID))
         self.assertNotIn("transcript", err)
         self.assertIsNone(self.argv())
         self.assertEqual((self.ais_dir / "state.json").read_text(), before)
@@ -531,8 +531,8 @@ class SwitchTest(SwitchCase):
         # the resumed claude appends the next line
         self.env(FAKE_CLAUDE_APPEND_TO=str(self.transcript),
                  FAKE_CLAUDE_APPEND=json.dumps({"type": "user", "timestamp": iso(after)}))
-        self.last_used("work")
-        code, _, err = self.ais("switch", "work")
+        self.last_used("secondary")
+        code, _, err = self.ais("switch", "secondary")
         self.assertEqual(code, 0, err)
         entry = self.log_lines()[0]
         self.assertIsInstance(entry["tool_seconds"], float)
@@ -541,20 +541,20 @@ class SwitchTest(SwitchCase):
         self.assertAlmostEqual(entry["e2e_seconds"], 1200, delta=0.01)
         # no marker before the launch: no end-to-end time
         self.transcript.write_text(line("Main task", self.proj, timestamp=iso(limited)))
-        self.ais("switch", "work")
+        self.ais("switch", "secondary")
         entry = self.log_lines()[1]
         self.assertIsInstance(entry["tool_seconds"], float)
         self.assertIsNone(entry["e2e_seconds"])
 
     def test_double_switch_second_gets_75(self):
-        self.write_config(acks={"personal->work": "2026-10-01"})
-        self.last_used("personal")
+        self.write_config(acks={"primary->secondary": "2026-10-01"})
+        self.last_used("primary")
         ready, stop, gate = self.home / "ready", self.home / "stop", self.home / "gate"
         self.addCleanup(stop.touch)  # never leave the first fake claude waiting
 
         def start(**env):
             e = dict(os.environ, PYTHONPATH=str(SRC), **env)
-            p = subprocess.Popen([sys.executable, "-c", CHILD, str(self.home), "switch", "work"],
+            p = subprocess.Popen([sys.executable, "-c", CHILD, str(self.home), "switch", "secondary"],
                                  env=e, cwd=str(self.proj), stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             self.addCleanup(lambda: p.poll() is None and p.kill())

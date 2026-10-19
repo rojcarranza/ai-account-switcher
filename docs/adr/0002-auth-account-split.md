@@ -33,8 +33,8 @@ simpler and easier. Facts from Claude Switcher's README (read 2026-10-16):
   terminal logins made with either tool are found by the other with no
   import and no second sign-in, as long as the ais account name equals
   Claude Switcher's lowercased label.
-- `ais setup` is a guided flow: name the accounts (default `personal`
-  as the default account, `work` as extra), check each with `claude auth
+- `ais setup` is a guided flow: name the accounts (default `primary`
+  as the default account, `secondary` as extra), check each with `claude auth
   status`, and start the sign-in only for accounts that are not logged in.
 - Credential check: `claude auth status` under the account's environment
   (no secret printed), cached 10 minutes; the menu uses only the cache or

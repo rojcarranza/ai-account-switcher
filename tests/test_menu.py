@@ -22,14 +22,14 @@ NOW = calendar.timegm((2026, 10, 16, 12, 0, 0))
 
 
 def status(**over):
-    d = {"accounts": [{"name": "personal", "label": "Personal", "credential_present": "yes",
+    d = {"accounts": [{"name": "primary", "label": "Primary", "credential_present": "yes",
                        "credential_source": "keychain", "credential_error": ""},
-                      {"name": "work", "label": "Work", "credential_present": "unknown",
+                      {"name": "secondary", "label": "Secondary", "credential_present": "unknown",
                        "credential_source": "keychain", "credential_error": "x"}],
          "session": None,
-         "recent": [{"id": UUID, "folder": "/Users/x/proj", "title": "Main task", "last_used": "personal",
+         "recent": [{"id": UUID, "folder": "/Users/x/proj", "title": "Main task", "last_used": "primary",
                      "open": False, "modified": "2026-10-16T10:00:00Z"},
-                    {"id": OTHER, "folder": "/Users/x/other", "title": "Second", "last_used": None,
+                    {"id": OTHER, "folder": "/Users/x/other", "title": "Side task", "last_used": None,
                      "open": True, "modified": "2026-10-16T09:00:00Z"}],
          "self_check": {"ok": True, "messages": []}}
     d.update(over)
@@ -42,20 +42,20 @@ class RenderTest(SwitchCase):
         self.assertEqual(out, [
             "| sfimage=gauge.medium",
             "---",
-            "Personal | sfimage=person.crop.circle",
+            "Primary | sfimage=person.crop.circle",
             "Sessions (1) | sfimage=list.bullet",
             "--Main task · 2 h ago",
             "----/Users/x/proj",
-            "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true sfimage=play.fill"
+            "----Resume in Secondary | bash=%s param1=switch param2=--session param3=%s param4=secondary terminal=true sfimage=play.fill"
             % (AIS, UUID),
             "---",
-            "Work · credential unknown | sfimage=person.crop.circle",
+            "Secondary · credential unknown | sfimage=person.crop.circle",
             "---",
-            "Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false sfimage=desktopcomputer" % AIS,
-            "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS,
-            'Copy "ais use personal" | bash=%s param1=use param2=--copy param3=personal terminal=false'
+            "Open Primary Desktop | bash=%s param1=desktop param2=primary terminal=false sfimage=desktopcomputer" % AIS,
+            "Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS,
+            'Copy "ais use primary" | bash=%s param1=use param2=--copy param3=primary terminal=false'
             ' sfimage=doc.on.clipboard' % AIS,
-            'Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+            'Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
             ' sfimage=doc.on.clipboard' % AIS,
         ])
 
@@ -67,7 +67,7 @@ class RenderTest(SwitchCase):
         s["recent"][0]["last_used"] = None
         s["recent"][1]["last_used"] = "ghost"  # an unconfigured owner is as unknown as none
         out = menu.render(s, False, AIS, NOW)
-        for hidden in ("Other sessions", "Main task", "Second", "Resume", "Quit"):
+        for hidden in ("Other sessions", "Main task", "Side task", "Resume", "Quit"):
             self.assertNotIn(hidden, out)
 
     def test_path_with_space_is_quoted_and_bad_path_fails(self):
@@ -80,7 +80,7 @@ class RenderTest(SwitchCase):
         s = status()
         s["recent"][0]["title"] = "x | bash=/bin/rm param1=-rf\n--Resume in Evil | bash=/bin/sh\x1b[2J"
         s["recent"][0]["folder"] = "/tmp/--a | terminal=true\r\n---"
-        s["accounts"][0]["label"] = "Per|sonal\n"
+        s["accounts"][0]["label"] = "Pri|mary\n"
         out = menu.render(s, False, AIS, NOW)
         lines = out.split("\n")
         for ln in lines:
@@ -93,7 +93,7 @@ class RenderTest(SwitchCase):
         acts = [p.split()[0] for p in params if p not in icons]
         self.assertEqual(sorted(acts), ["bash=" + AIS] * 5)
         self.assertEqual(sum(1 for ln in lines if re.match(r"--[^-]", ln)), 1)
-        self.assertEqual(lines[2], "Personal | sfimage=person.crop.circle")  # label "Per|sonal\n" cleaned in the header
+        self.assertEqual(lines[2], "Primary | sfimage=person.crop.circle")  # label "Pri|mary\n" cleaned in the header
         evil = [ln for ln in lines if "Evil" in ln]
         self.assertEqual(len(evil), 1)
         self.assertRegex(evil[0], r"^--x  bash=/bin/rm")  # one level, text kept inert
@@ -101,19 +101,19 @@ class RenderTest(SwitchCase):
 
     def test_open_session_shows_disabled_quit_item(self):
         s = status()
-        s["recent"][1]["last_used"] = "work"
+        s["recent"][1]["last_used"] = "secondary"
         out = menu.render(s, False, AIS, NOW)
         self.assertIn("----Quit Claude in /Users/x/other to resume | disabled=true", out)
         self.assertNotIn(OTHER, out)
 
     def test_privacy_mode_hides_folders_and_titles(self):
         out = menu.render(status(), True, AIS, NOW)
-        self.assertEqual(out.split("\n")[2:6], ["Personal | sfimage=person.crop.circle", "Work · credential unknown | sfimage=person.crop.circle", "---",
+        self.assertEqual(out.split("\n")[2:6], ["Primary | sfimage=person.crop.circle", "Secondary · credential unknown | sfimage=person.crop.circle", "---",
                                                 "recent sessions: 1, open: 0"])  # the unknown-owner session is not counted
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
-        self.assertIn("Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS, out)
-        self.assertIn('Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+        self.assertIn("Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS, out)
+        self.assertIn('Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
                       ' sfimage=doc.on.clipboard' % AIS, out)
 
     def test_label_leading_dashes_stripped(self):
@@ -122,8 +122,8 @@ class RenderTest(SwitchCase):
         s["accounts"][1]["label"] = "---"
         out = menu.render(s, False, AIS, NOW).split("\n")
         self.assertEqual(out[2], "x | sfimage=person.crop.circle")
-        self.assertIn("work · credential unknown | sfimage=person.crop.circle", out)
-        self.assertTrue(any(ln.startswith("----Resume in work | bash=") for ln in out))
+        self.assertIn("secondary · credential unknown | sfimage=person.crop.circle", out)
+        self.assertTrue(any(ln.startswith("----Resume in secondary | bash=") for ln in out))
 
     def test_age_buckets(self):
         def ago(delta):
@@ -153,10 +153,10 @@ class RenderTest(SwitchCase):
         """FR-4.18"""
         for privacy in (False, True):
             with self.subTest(privacy=privacy):
-                out = menu.render(status(running=["personal", "work"]), privacy, AIS, NOW).split("\n")
-                self.assertEqual(out[:3], ["| sfimage=gauge.medium", "---", "Running: Personal, Work"])
-        out = menu.render(status(running=["work"]), False, AIS, NOW).split("\n")
-        self.assertEqual(out[2], "Running: Work")
+                out = menu.render(status(running=["primary", "secondary"]), privacy, AIS, NOW).split("\n")
+                self.assertEqual(out[:3], ["| sfimage=gauge.medium", "---", "Running: Primary, Secondary"])
+        out = menu.render(status(running=["secondary"]), False, AIS, NOW).split("\n")
+        self.assertEqual(out[2], "Running: Secondary")
 
     def test_no_running_line_when_none_running(self):
         for st in (status(running=[]), status()):
@@ -170,7 +170,7 @@ class RenderTest(SwitchCase):
     def test_ten_per_group_newest_first(self):
         s = status()
         s["recent"] = [{"id": "00000000-0000-4000-8000-%012d" % i, "folder": "/Users/x/p", "title": "T%d" % i,
-                        "last_used": "personal", "open": False, "modified": "2026-10-16T10:00:00Z"}
+                        "last_used": "primary", "open": False, "modified": "2026-10-16T10:00:00Z"}
                        for i in range(12)]
         lines = menu.render(s, False, AIS, NOW).split("\n")
         self.assertIn("Sessions (10) | sfimage=list.bullet", lines)
@@ -199,8 +199,8 @@ class RenderTest(SwitchCase):
         s = status()
         s["accounts"][1]["label"] = "Wo|rk\nx"
         lines = [ln for ln in menu.render(s, False, AIS).split("\n") if ln.startswith("Open ")]
-        self.assertEqual(lines, ["Open Personal Desktop | bash=%s param1=desktop param2=personal terminal=false sfimage=desktopcomputer" % AIS,
-                                 "Open Workx Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer" % AIS])
+        self.assertEqual(lines, ["Open Primary Desktop | bash=%s param1=desktop param2=primary terminal=false sfimage=desktopcomputer" % AIS,
+                                 "Open Workx Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS])
 
     def test_invalid_session_id_or_account_name_fails(self):
         s = status()
@@ -259,10 +259,10 @@ def png_pixels(data):
 USAGE_T = (NOW - 2 * 3600) * 1000
 
 
-def with_usage(personal=None, work=None, **over):
+def with_usage(primary=None, secondary=None, **over):
     s = status(**over)
-    s["accounts"][0]["usage"] = personal
-    s["accounts"][1]["usage"] = work
+    s["accounts"][0]["usage"] = primary
+    s["accounts"][1]["usage"] = secondary
     return s
 
 
@@ -310,16 +310,16 @@ class UsageRenderTest(SwitchCase):
                     self.assertEqual(mid[0], colour)
 
     def test_usage_lines_under_header(self):
-        out = menu.render(with_usage(work={"t": USAGE_T, "fh": 69, "sd": 68.6}), False, AIS, NOW).split("\n")
-        i = out.index("Work · credential unknown · updated 2 h ago | sfimage=person.crop.circle")
+        out = menu.render(with_usage(secondary={"t": USAGE_T, "fh": 69, "sd": 68.6}), False, AIS, NOW).split("\n")
+        i = out.index("Secondary · credential unknown · updated 2 h ago | sfimage=person.crop.circle")
         self.assertEqual(self.bar(out[i + 1])[0], "5h  69%")
         self.assertEqual(self.bar(out[i + 2])[0], "week  69%")
         self.assertEqual(out[i + 3], "---")
-        self.assertEqual(out[2:4], ["Personal | sfimage=person.crop.circle", "Sessions (1) | sfimage=list.bullet"])  # no usage: nothing
+        self.assertEqual(out[2:4], ["Primary | sfimage=person.crop.circle", "Sessions (1) | sfimage=list.bullet"])  # no usage: nothing
 
     def test_missing_value_shows_question_mark_and_empty_bar(self):
         out = menu.render(with_usage({"t": USAGE_T, "fh": None, "sd": 150}), False, AIS, NOW).split("\n")
-        self.assertEqual(out[2], "Personal · updated 2 h ago | sfimage=person.crop.circle")
+        self.assertEqual(out[2], "Primary · updated 2 h ago | sfimage=person.crop.circle")
         text, (_, _, _, rows) = self.bar(out[3])
         self.assertEqual(text, "5h  ?")
         self.assertEqual(set(rows[8]), {menu.BAR_TRACK})
@@ -328,20 +328,20 @@ class UsageRenderTest(SwitchCase):
     def test_old_sample_shows_no_sample_line(self):
         old = (NOW - 24 * 3600 - 1) * 1000
         out = menu.render(with_usage({"t": old, "fh": 9, "sd": 9}), False, AIS, NOW).split("\n")
-        self.assertEqual(out[2:5], ["Personal | sfimage=person.crop.circle", "usage: no sample in the last 24 h", "Sessions (1) | sfimage=list.bullet"])
+        self.assertEqual(out[2:5], ["Primary | sfimage=person.crop.circle", "usage: no sample in the last 24 h", "Sessions (1) | sfimage=list.bullet"])
         edge = menu.render(with_usage({"t": (NOW - 24 * 3600) * 1000, "fh": 9, "sd": 9}), False, AIS, NOW)
-        self.assertIn("Personal · updated 24 h ago | sfimage=person.crop.circle", edge.split("\n"))
+        self.assertIn("Primary · updated 24 h ago | sfimage=person.crop.circle", edge.split("\n"))
 
     def test_far_future_sample_time_does_not_break_the_menu(self):
         out = menu.render(with_usage({"t": 10 ** 22, "fh": 1, "sd": 2}), False, AIS, NOW).split("\n")
-        self.assertEqual(out[2], "Personal | sfimage=person.crop.circle")  # no age for a time out of range
+        self.assertEqual(out[2], "Primary | sfimage=person.crop.circle")  # no age for a time out of range
         self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0], out[5]], ["5h  1%", "week  2%", "Sessions (1) | sfimage=list.bullet"])
 
     def test_privacy_mode_shows_usage(self):
         out = menu.render(with_usage({"t": USAGE_T, "fh": 0, "sd": 73}), True, AIS, NOW).split("\n")
-        self.assertEqual(out[2], "Personal · updated 2 h ago | sfimage=person.crop.circle")
+        self.assertEqual(out[2], "Primary · updated 2 h ago | sfimage=person.crop.circle")
         self.assertEqual([self.bar(out[3])[0], self.bar(out[4])[0], out[5]],
-                         ["5h  0%", "week  73%", "Work · credential unknown | sfimage=person.crop.circle"])
+                         ["5h  0%", "week  73%", "Secondary · credential unknown | sfimage=person.crop.circle"])
 
 
 class IconTest(SwitchCase):
@@ -349,21 +349,21 @@ class IconTest(SwitchCase):
 
     def test_icons(self):
         lines = menu.render(status(), False, AIS, NOW).split("\n")
-        for line in ("Personal | sfimage=person.crop.circle",
-                     "Work · credential unknown | sfimage=person.crop.circle",
+        for line in ("Primary | sfimage=person.crop.circle",
+                     "Secondary · credential unknown | sfimage=person.crop.circle",
                      "Sessions (1) | sfimage=list.bullet",
-                     "----Resume in Work | bash=%s param1=switch param2=--session param3=%s param4=work terminal=true"
+                     "----Resume in Secondary | bash=%s param1=switch param2=--session param3=%s param4=secondary terminal=true"
                      " sfimage=play.fill" % (AIS, UUID),
-                     "Open Work Desktop | bash=%s param1=desktop param2=work terminal=false sfimage=desktopcomputer"
+                     "Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer"
                      % AIS,
-                     'Copy "ais use work" | bash=%s param1=use param2=--copy param3=work terminal=false'
+                     'Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
                      ' sfimage=doc.on.clipboard' % AIS):
             with self.subTest(line=line):
                 self.assertIn(line, lines)
 
     def test_privacy_headers_have_icons(self):
         lines = menu.render(status(), True, AIS, NOW).split("\n")
-        self.assertIn("Personal | sfimage=person.crop.circle", lines)
+        self.assertIn("Primary | sfimage=person.crop.circle", lines)
 
     def test_menu_bar_title_is_an_icon_only(self):
         for st, privacy in ((status(), False), (status(), True), (status(recent=[]), False)):
@@ -410,27 +410,27 @@ class RenderProcessTest(SwitchCase):
         return p.returncode, out, err, time.monotonic() - t
 
     def test_render_end_to_end(self):
-        self.last_used("work")
+        self.last_used("secondary")
         self.env(FAKE_PGREP_OUT="")
         before = self.files()
         code, out, err, _ = self.render()
         self.assertEqual(code, 0, err)
         lines = out.split("\n")
         self.assertEqual(lines[:2], ["| sfimage=gauge.medium", "---"])
-        self.assertIn("Personal | sfimage=person.crop.circle", lines)
+        self.assertIn("Primary | sfimage=person.crop.circle", lines)
         self.assertTrue(any(ln.startswith("--Main task · ") for ln in lines), out)
         self.assertIn("----~/proj", lines)
-        self.assertTrue(any(ln.startswith("----Resume in Personal | bash=") and "param3=" + UUID in ln
+        self.assertTrue(any(ln.startswith("----Resume in Primary | bash=") and "param3=" + UUID in ln
                             for ln in lines), out)
         self.assertNotIn("auth", self.calls_text())
         self.assertEqual(before, self.files())
         self.assertFalse((self.ais_dir / "ais.log").exists())
 
     def test_menu_uses_30_recent_status_json_keeps_5(self):
-        owned = {str(self.transcript): {"account": "personal", "at": "t"}}
+        owned = {str(self.transcript): {"account": "primary", "at": "t"}}
         for i in range(7):  # 8 sessions with the setUp one: more than 5, fewer than the 10 per group
             p = self.add_session("00000000-0000-4000-8000-%012d" % i, self.proj, "T%d" % i, 1000 + i)
-            owned[str(p)] = {"account": "personal", "at": "t"}
+            owned[str(p)] = {"account": "primary", "at": "t"}
         (self.ais_dir / "state.json").write_text(json.dumps({"sessions": owned}))
         self.env(FAKE_PGREP_OUT="")
         code, out, err, _ = self.render()
@@ -449,11 +449,11 @@ class RenderProcessTest(SwitchCase):
 
     def test_render_with_hung_desktop_ps_shows_menu_without_running_line(self):
         """FR-4.18: a ps that does not answer counts as failed, not as a menu failure."""
-        self.last_used("personal")
+        self.last_used("primary")
         self.env(FAKE_PGREP_OUT="", FAKE_PS_SLEEP="30")
         code, out, err, _ = self.render()
         self.assertEqual(code, 0, err)
-        self.assertIn("Personal | sfimage=person.crop.circle", out.split("\n"), out)
+        self.assertIn("Primary | sfimage=person.crop.circle", out.split("\n"), out)
         self.assertNotIn("Running:", out)
         self.assertNotIn("ais ⚠", out)
 
@@ -525,7 +525,7 @@ class RenderProcessTest(SwitchCase):
             (d / ("00000000-0000-4000-8000-%012d.jsonl" % i)).write_text(
                 '{"type": "user", "message": {"content": "t%d"}, "cwd": "%s"}\n' % (i, self.proj))
         acct = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"  # NFR-PERF: 1,000 Desktop records for each of two accounts
-        for folder in ("Claude", "Claude-ais-work"):
+        for folder in ("Claude", "Claude-ais-secondary"):
             data = self.home / "Library" / "Application Support" / folder
             sub = data / "claude-code-sessions" / acct / "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
             sub.mkdir(parents=True)

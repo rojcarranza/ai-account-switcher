@@ -189,7 +189,7 @@ class UsageTest(DesktopFixture):
         return ClaudeProvider().desktop_usage(data_dir, self.home)
 
     def test_newest_sample_by_t(self):
-        d = self.desktop("Claude-Work")
+        d = self.desktop("Claude-Secondary")
         usage_file(d, [sample(100, 1, 2), sample(300, 69, 68), sample(200, 5, 6)])
         self.assertEqual(self.usage(d), {"t": 300, "fh": 69, "sd": 68})
 
@@ -254,9 +254,9 @@ class StatusTest(DesktopFixture):
     def setUp(self):
         super().setUp()
         self.env(FAKE_PGREP_OUT="")
-        self.work_dir = self.folder("Claude-Work")
-        self.write_config({"work": {"label": "Work", "provider": "claude", "credDir": self.work,
-                                    "desktop_data_dir": str(self.work_dir)}})
+        self.secondary_dir = self.folder("Claude-Secondary")
+        self.write_config({"secondary": {"label": "Secondary", "provider": "claude", "credDir": self.secondary,
+                                    "desktop_data_dir": str(self.secondary_dir)}})
 
     def status(self, desktop=True):
         ctx = cli._context(time.monotonic())
@@ -266,12 +266,12 @@ class StatusTest(DesktopFixture):
         return next(s for s in st["recent"] if s["id"] == sid)
 
     def test_desktop_title_and_owner_fill_unknown(self):
-        self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
+        self.put(self.desktop("Claude-Secondary", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
         s = self.session(self.status())
-        self.assertEqual((s["title"], s["last_used"]), ("Desktop title", "work"))
+        self.assertEqual((s["title"], s["last_used"]), ("Desktop title", "secondary"))
 
     def test_status_without_desktop_unchanged(self):
-        self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
+        self.put(self.desktop("Claude-Secondary", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
         s = self.session(self.status(desktop=False))
         self.assertEqual((s["title"], s["last_used"]), ("Main task", None))
         code, out, _ = self.ais("status", "--json")
@@ -279,38 +279,38 @@ class StatusTest(DesktopFixture):
         self.assertEqual(json.loads(out)["recent"][0]["title"], "Main task")
 
     def test_state_owner_beats_desktop_but_title_is_newest(self):
-        self.last_used("personal")
-        self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Work title"), acct=OLD_ACCT)
+        self.last_used("primary")
+        self.put(self.desktop("Claude-Secondary", OLD_ACCT), record(UUID, title="Secondary title"), acct=OLD_ACCT)
         s = self.session(self.status())
-        self.assertEqual((s["title"], s["last_used"]), ("Work title", "personal"))
+        self.assertEqual((s["title"], s["last_used"]), ("Secondary title", "primary"))
 
     def test_newer_activity_wins_across_accounts(self):
-        self.put(self.desktop("Claude", ACCT), record(UUID, title="Personal title", at=100))
-        self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Work title", at=200), acct=OLD_ACCT)
+        self.put(self.desktop("Claude", ACCT), record(UUID, title="Primary title", at=100))
+        self.put(self.desktop("Claude-Secondary", OLD_ACCT), record(UUID, title="Secondary title", at=200), acct=OLD_ACCT)
         s = self.session(self.status())
-        self.assertEqual((s["title"], s["last_used"]), ("Work title", "work"))
-        self.put(self.folder(), record(UUID, title="Personal newest", at=300))
+        self.assertEqual((s["title"], s["last_used"]), ("Secondary title", "secondary"))
+        self.put(self.folder(), record(UUID, title="Primary newest", at=300))
         s = self.session(self.status())
-        self.assertEqual((s["title"], s["last_used"]), ("Personal newest", "personal"))
+        self.assertEqual((s["title"], s["last_used"]), ("Primary newest", "primary"))
 
     def test_blank_desktop_title_keeps_transcript_title(self):
         self.put(self.desktop(), record(UUID, title="   "))
         self.assertEqual(self.session(self.status())["title"], "Main task")
 
     def test_running_desktops_override_and_default(self):
-        """FR-4.18: one ps call; the override folder counts for work."""
+        """FR-4.18: one ps call; the override folder counts for secondary."""
         main = "/Applications/Claude.app/Contents/MacOS/Claude"
-        self.env(FAKE_PS_OUT="101 %s\n301 %s --user-data-dir=%s" % (main, main, self.work_dir))
-        self.assertEqual(self.status()["running"], ["personal", "work"])
+        self.env(FAKE_PS_OUT="101 %s\n301 %s --user-data-dir=%s" % (main, main, self.secondary_dir))
+        self.assertEqual(self.status()["running"], ["primary", "secondary"])
         self.assertEqual(self.calls_text().count("ps -x -ww -o pid=,args="), 1)
-        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.work_dir))
-        self.assertEqual(self.status()["running"], ["work"])
+        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.secondary_dir))
+        self.assertEqual(self.status()["running"], ["secondary"])
 
     def test_running_desktop_launched_by_ais(self):
         self.write_config()
         main = "/Applications/Claude.app/Contents/MacOS/Claude"
-        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.folder("Claude-ais-work")))
-        self.assertEqual(self.status()["running"], ["work"])
+        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.folder("Claude-ais-secondary")))
+        self.assertEqual(self.status()["running"], ["secondary"])
 
     def test_none_running_or_ps_failure_gives_no_running_and_no_warning(self):
         self.env(FAKE_PS_OUT="")
@@ -327,7 +327,7 @@ class StatusTest(DesktopFixture):
     def test_empty_desktop_title_keeps_transcript_title(self):
         self.put(self.desktop(), record(UUID, title=""))
         s = self.session(self.status())
-        self.assertEqual((s["title"], s["last_used"]), ("Main task", "personal"))
+        self.assertEqual((s["title"], s["last_used"]), ("Main task", "primary"))
 
     def test_record_without_transcript_is_ignored(self):
         self.put(self.desktop(), record(MISSING))
@@ -335,13 +335,13 @@ class StatusTest(DesktopFixture):
         self.assertEqual([s["id"] for s in st["recent"]], [UUID])
 
     def test_usage_per_account(self):
-        usage_file(self.desktop("Claude-Work", OLD_ACCT), [sample(100, 69, 68)])
+        usage_file(self.desktop("Claude-Secondary", OLD_ACCT), [sample(100, 69, 68)])
         st = self.status()
         self.assertEqual([a["usage"] for a in st["accounts"]], [None, {"t": 100, "fh": 69, "sd": 68}])
         self.assertNotIn("usage", self.status(desktop=False)["accounts"][1])
 
     def test_render_end_to_end(self):
-        self.put(self.desktop("Claude-Work", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
+        self.put(self.desktop("Claude-Secondary", OLD_ACCT), record(UUID, title="Desktop title"), acct=OLD_ACCT)
         p = subprocess.run([sys.executable, "-m", "ais", "menu", "render"], stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=str(self.home),
                            env=dict(os.environ, PYTHONPATH=str(SRC), HOME=str(self.home)), timeout=30)

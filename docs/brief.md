@@ -2,10 +2,10 @@
 Status: Approved 2026-10-16
 
 ## Problem (2 to 3 sentences)
-I use two Claude Pro subscriptions on one Mac (personal and work). When one hits its usage limit mid-task, switching accounts means logging out and back in, and the agent loses its session, memory and context, so I have to re-explain everything. There is no reliable way to keep one continuous working session across accounts, or across other AI tools later.
+I use two Claude Pro subscriptions on one Mac (primary and secondary). When one hits its usage limit mid-task, switching accounts means logging out and back in, and the agent loses its session, memory and context, so I have to re-explain everything. There is no reliable way to keep one continuous working session across accounts, or across other AI tools later.
 
 ## Target user and main job-to-be-done
-- **User:** me, a solo developer on one Mac with two Claude Pro accounts (personal and work), using Claude Code in the terminal for long agent tasks.
+- **User:** me, a solo developer on one Mac with two Claude Pro accounts (primary and secondary), using Claude Code in the terminal for long agent tasks.
 - **Main job:** when one account hits its usage limit, switch to the other account in seconds and pick up the same Claude Code session, with its memory, project context and conversation history intact, so the agent keeps going without me re-explaining anything.
 
 ## Pitch (3 sentences max)
@@ -16,9 +16,9 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 - **Zero context loss:** in the same 2 weeks, 0 switches where I have to re-explain the task, measured by the resumed session showing the prior conversation and memory.
 
 ## MVP scope (3 to 5 bullets)
-1. **Two accounts, both signed in:** personal and work Claude Code (CLI) logins live side by side on one Mac, each with its own Keychain credential, and `ais desktop <account>` opens each account's own Claude Desktop window side by side.
+1. **Two accounts, both signed in:** primary and secondary Claude Code (CLI) logins live side by side on one Mac, each with its own Keychain credential, and `ais desktop <account>` opens each account's own Claude Desktop window side by side.
 2. **One shared brain:** both accounts use the same `~/.claude` (session transcripts, memory, CLAUDE.md, skills, subagents, settings), so either one sees everything.
-3. **One-command switch and resume:** a command such as `ais switch work` reopens the current session (same session ID) under the other account.
+3. **One-command switch and resume:** a command such as `ais switch secondary` reopens the current session (same session ID) under the other account.
 4. **Status at a glance:** `ais status` shows which account is active and whether each one is signed in, and an optional SwiftBar menu bar plugin shows the same with one-click switch actions.
 5. **Built for more AIs later:** a small provider plug-in shape with only Claude implemented, plus a reversible install that backs up `~/.claude` first.
 
@@ -37,7 +37,7 @@ AI Account Switcher keeps two Claude Code accounts signed in side by side on one
 - **Platform:** macOS, zsh, Claude Code CLI installed natively. The `claude` login on macOS lives in Keychain.
 - **Cloud:** none. Everything runs and stays local.
 - **Compliance:** use stays within Anthropic's Consumer Terms and Usage Policy for both accounts (see open question 1).
-- **Work account:** if the work account is tied to an employer, that employer's policies on mixing personal and work data apply, since shared memory means both accounts see everything.
+- **Secondary account:** if the secondary account is tied to an employer, that employer's policies on mixing personal and work data apply, since shared memory means both accounts see everything.
 - **Safety:** never edit Keychain secrets directly; back up `~/.claude` before any change; every install step can be undone.
 - **Tooling:** Superpowers 7.0.0 was installed but could not be live-loaded in the remote planning session, so its skills were followed from disk.
 - **Timeline:** MVP usable within 2 weeks of part-time work.
