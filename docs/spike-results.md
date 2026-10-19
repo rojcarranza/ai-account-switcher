@@ -229,14 +229,16 @@ Method: read-only Python over `~/Library/Application Support/Claude*` (folder li
 ### Inferred (not checked in the UI)
 - One instance shows only the records under its current `lastKnownAccountUuid`; the A0 records left in the default folder are not listed while A1 is signed in. Because: the record path is keyed by account, and Claude Switcher's handoff needed to copy sessions into the other folder (ADR-0006).
 - Native multi-account switching is off for this user today: its gate is not in the cached flags, so Desktop treats it as unavailable. When Anthropic turns it on, one Desktop may switch accounts by itself.
-- Showing both accounts' sessions in one instance needs a record per session under that instance's current account. Desktop's import already creates such records, pointing at the same transcript (`cliSessionId`), without copying the transcript, because the transcripts are shared.
 - Desktop guards against two loaded sessions claiming one `cliSessionId` inside one instance (`transcriptIdClaims`), not across instances. A session open in both the Personal and Work Desktop at once may write the same transcript from two processes.
 - Fit with the terminal: Desktop and `ais switch` use the same transcripts, so a Desktop session can already be resumed in the terminal on either account with `ais switch` (ADR-0006), and a terminal session can be imported into either Desktop. No ais change to `~/.claude` is needed.
 
 ### Answers to the issue's questions
 1. Storage: per data folder, per account UUID, per org, one JSON record per session pointing at a shared `~/.claude` transcript.
-2. One instance listing both accounts: not by itself while the multi-account gate is off. It needs records for the other account's sessions under the current account, which Desktop's own "Import Claude Code CLI Sessions…" creates. No ais copy of sessions is needed. Switching accounts in one instance would mean ais swapping Desktop's sign-in (`oauth:tokenCache`), which NFR-SEC and ADR-0008 ("never signs in for the user") rule out.
+2. One instance listing both accounts: no, while the multi-account gate is off. Desktop's own import does not bring the other account's Desktop sessions over (see "Import checked in the app" below). Only an ais copy of session records into the other folder would, which ADR-0009 (read only) rules out. Switching accounts in one instance would mean ais swapping Desktop's sign-in (`oauth:tokenCache`), which NFR-SEC and ADR-0008 ("never signs in for the user") rule out.
 3. Terminal fit: unchanged. Transcripts stay shared; `ais switch` keeps resuming by `cliSessionId`.
+
+### Import checked in the app (M6 step 7, 2026-10-19)
+The user quit Personal Desktop, ran "Import Claude Code CLI Sessions…" in the ais Work Desktop, and confirmed the offered count. Afterwards the Work folder had 12 new or rewritten records: 10 whose `cliSessionId` is in `Claude-Work`'s list (same account, A0), 2 that are in no Desktop list (terminal only), and none from the default folder's Personal (A1) list. This session's transcript, the newest of 436 in `~/.claude/projects`, was not imported. Result: the import covers terminal sessions and same-account sibling folders, not the other account's Desktop sessions. The earlier inference that it would list both accounts' sessions was wrong.
 
 ## G-2 Terms — DONE
 Sources: https://www.anthropic.com/legal/consumer-terms (effective October 8, 2025 as returned) and https://www.anthropic.com/legal/aup (effective date returned as November 12, 2026; reported as read). Fetched 2026-10-16.

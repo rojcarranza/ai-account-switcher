@@ -83,8 +83,8 @@ Result: ____ (date ____)
 4. Run `ais desktop work` once more while it is open, then `ps -x -o pid=,args= | grep "Claude-ais-work" | grep -v grep`.
 5. Repeat step 1.
 6. Quit Work Desktop, click `Open Work Desktop` in the ais menu.
-7. Quit Personal Desktop (Cmd+Q). In Work Desktop, run "Import Claude Code CLI Sessions…"; open a Personal session from its list and send one message; then open the ais menu.
+7. Quit Personal Desktop (Cmd+Q). In Work Desktop, run "Import Claude Code CLI Sessions…" and confirm. Then, in the ais menu, open a Personal Desktop session and click `Resume in Work`.
 
-Expected: Work is still signed in after step 3; step 4 prints `Work Desktop is already open (PID n)` and `ps` shows one `…/Contents/MacOS/Claude` process for that folder (helpers aside); the `mdat` values are unchanged; step 6 opens Work Desktop with no Terminal window; in step 7 the Personal session appears in Work Desktop's list and continues there, and while it runs the ais menu shows it `open` with "Quit Claude in <folder> to resume".
+Expected: Work is still signed in after step 3; step 4 prints `Work Desktop is already open (PID n)` and `ps` shows one `…/Contents/MacOS/Claude` process for that folder (helpers aside); the `mdat` values are unchanged; step 6 opens Work Desktop with no Terminal window; in step 7 the import adds no Personal Desktop session to Work Desktop's list (it may add terminal sessions), and `Resume in Work` continues the Personal session in Terminal; while it runs the ais menu shows it `open` with "Quit Claude in <folder> to resume".
 
 Result: ____ (date ____)

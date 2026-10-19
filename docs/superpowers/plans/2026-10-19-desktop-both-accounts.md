@@ -8,6 +8,8 @@
 
 **Tech Stack:** Markdown in `docs/`.
 
+**Note (2026-10-19, after execution):** M6 step 7 showed that Desktop's import does not bring the other account's Desktop sessions. The import wording in Tasks 1 and 2 was replaced by the confirmed behaviour (see the spec's Status line), and the PR uses `Refs #1`.
+
 **Spec:** `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md` (approved by the user 2026-10-19). Evidence: `docs/spike-results.md`, section "Desktop: one app for both accounts".
 
 ## Global Constraints

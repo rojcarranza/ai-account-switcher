@@ -210,7 +210,7 @@ Documents created by the plan: `docs/spike-results.md` (G-1 to G-3 answers),
 `docs/usage.md` (daily use: `/exit`, then `ais switch`; `/compact` advice).
 
 ## Out of scope
-1. No claude.ai web chat. Claude Desktop only as one separate instance per account (FR-6); no single Desktop that switches accounts. Listing both accounts' sessions in one window uses Desktop's own "Import Claude Code CLI Sessions…" (`docs/usage.md`; rojcarranza/ai-account-switcher#1, design `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`).
+1. No claude.ai web chat. Claude Desktop only as one separate instance per account (FR-6); no single Desktop that switches accounts or lists both accounts' sessions; the ais menu lists both and `Resume in <account>` continues across accounts (`docs/usage.md`; rojcarranza/ai-account-switcher#1 stays open, design `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`).
 2. No automatic switching when a limit hits; the user runs the switch command.
 3. No second AI provider implemented; only the plug-in shape exists.
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
@@ -359,5 +359,5 @@ Change 2026-10-18 (user approved, rojcarranza/ai-account-switcher#62):
 - FR-3.2: a named account on a session with no record also treats the default account as last-used, so the FR-2.8 prompt applies to the menu's `Resume in <label>` click (which always names the account), as NFR-SEC requires. Naming the default account still resumes without the prompt. Narrows the 2026-10-17 change, which left the named-account case unchanged.
 
 Change 2026-10-19 (user approved, rojcarranza/ai-account-switcher#1):
-- Out of scope 1 narrowed: Desktop's own import lists both accounts' sessions in one window; ais adds no code and never writes Desktop files.
+- Out of scope 1 reworded: one Desktop shows only its own account's sessions; Desktop's own import does not bring the other account's Desktop sessions (checked in the app, M6 step 7). ais adds no code and never writes Desktop files; issue #1 stays open.
 - Switching accounts inside one Desktop is rejected for now: it would need ais to swap Desktop's stored sign-in (NFR-SEC, FR-6.4), and Desktop's native multi-account feature is gated off for the user (`docs/spike-results.md`).
