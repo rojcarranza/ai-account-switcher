@@ -95,3 +95,16 @@ class RecordTest(SwitchCase):
     def test_missing_config_exits_zero_silently(self):
         (self.ais_dir / "config.json").unlink()
         self.assertEqual(self.record(), {})
+
+    def test_fresh_record_survives_another_record_before_its_transcript_exists(self):
+        # Claude creates the transcript after SessionStart; another window's hook must not prune the record
+        new = self.projects / "p" / (OTHER + ".jsonl")
+        self.record(self.payload(OTHER, new))
+        sessions = self.record()
+        self.assertEqual(sorted(sessions), sorted([str(new), str(self.transcript)]))
+
+    def test_old_record_without_transcript_is_still_pruned(self):
+        gone = str(self.projects / "p" / "gone.jsonl")
+        (self.ais_dir / "state.json").write_text(json.dumps(
+            {"sessions": {gone: {"account": "work", "at": "2026-01-01T00:00:00Z"}}}))
+        self.assertNotIn(gone, self.record())

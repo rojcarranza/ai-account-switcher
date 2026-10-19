@@ -1,10 +1,11 @@
 """FR-5.7, FR-5.8, ADR-0010: `ais hook install` / `uninstall` add and remove only ais's SessionStart hook."""
 import json
 import os
+import shutil
 import stat
 import subprocess
 
-from ais import core
+from ais import cli, core
 from tests.test_menu_install import MenuInstallCase
 
 CMD = '[ -x "$HOME/.local/bin/ais" ] && "$HOME/.local/bin/ais" record || true'
@@ -183,4 +184,49 @@ class HookCliTest(HookCase):
         self.assertEqual(self.ais("hook", "install", stdin="y\n")[0], 0)
         self.assertEqual(self.read(), {"hooks": {"SessionStart": [OURS]}})
         self.assertEqual(self.ais("hook", "uninstall", stdin="y\n")[0], 0)
+        self.assertEqual(self.read(), {})
+
+
+class HookFreshReadTest(HookCase):
+    def changing(self, text):
+        """Answers that rewrite settings.json while the prompt waits, then say yes."""
+        def gen():
+            self.settings.write_text(text)
+            yield "y"
+        return gen()
+
+    def test_install_keeps_a_change_made_during_the_prompt(self):
+        self.write({"model": "opus"})
+        code, _, err = self.install(self.changing('{"model": "sonnet"}'))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.read(), {"model": "sonnet", "hooks": {"SessionStart": [OURS]}})
+
+    def test_uninstall_keeps_a_change_made_during_the_prompt(self):
+        self.write({"model": "opus", "hooks": {"SessionStart": [OURS]}})
+        code, _, err = self.uninstall(self.changing(json.dumps({"model": "sonnet", "hooks": {"SessionStart": [OURS]}})))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.read(), {"model": "sonnet"})
+
+    def test_ais_uninstall_keeps_a_change_made_during_the_prompt(self):
+        self.write({"model": "opus", "hooks": {"SessionStart": [OURS]}})
+        code, _, err = self.run_cmd(core.cmd_uninstall, self.changing(
+            json.dumps({"model": "sonnet", "hooks": {"SessionStart": [OURS]}})))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.read(), {"model": "sonnet"})
+
+    def test_ais_uninstall_with_malformed_settings_lists_manual_step(self):
+        self.settings.write_text("{")
+        code, out, err = self.run_cmd(core.cmd_uninstall, ("y",))
+        self.assertEqual(code, 0, err)
+        self.assertIn("remove it by hand", out)
+        self.assertEqual(self.settings.read_text(), "{")
+        self.assertFalse(self.ais_dir.exists())
+
+    def test_ais_uninstall_with_only_the_hook_does_not_list_ais_folder(self):
+        self.write({"hooks": {"SessionStart": [OURS]}})
+        ctx = cli._context(0.0, cwd_optional=True)
+        shutil.rmtree(str(self.ais_dir))
+        code, out, err = self._call(lambda: core.cmd_uninstall(ctx, False, ("y",)))
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("(empty)", out)
         self.assertEqual(self.read(), {})

@@ -186,6 +186,18 @@ def cmd_desktop(ctx: Context, account: str, dry_run: bool) -> int:
     return 0
 
 
+RECORD_GRACE = 86400  # FR-5.6: `ais record` writes before Claude creates the transcript
+
+
+def _fresh(entry: Any) -> bool:
+    """Whether a state.json entry is younger than RECORD_GRACE; an unreadable time counts as old."""
+    try:
+        at = datetime.strptime(entry["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, KeyError, ValueError):
+        return False
+    return (datetime.now(timezone.utc) - at).total_seconds() < RECORD_GRACE
+
+
 def _record_last_used(store: Store, session: Session, account: Optional[str], restore: Any = None) -> Any:
     """Set the session's last-used entry (or, with account None, put `restore` back; None removes it).
 
@@ -199,8 +211,8 @@ def _record_last_used(store: Store, session: Session, account: Optional[str], re
         if not isinstance(sessions, dict):
             raise AisError(EXIT_CONFIG, "%s: sessions is not an object" % (store.dir / "state.json"))
         key = str(session.transcript)
-        for stale in [k for k in sessions if k != key and not os.path.exists(k)]:  # FR-5.6
-            del sessions[stale]
+        for stale in [k for k in sessions if k != key and not os.path.exists(k) and not _fresh(sessions[k])]:
+            del sessions[stale]  # FR-5.6
         previous.append(sessions.get(key))
         if account is not None:
             sessions[key] = {"account": account, "at": at}
@@ -889,11 +901,11 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     steps.append('~/.zshrc: remove the line  export PATH="$HOME/.local/bin:$PATH"  only if you added it for ais '
                  "and nothing else in ~/.local/bin needs it (claude itself lives there)")
     steps.append('~/.zshrc: remove the line  eval "$(ais shell-init)"  if you added it')
-    hook = None  # type: Optional[Tuple[Path, dict, int]]
+    hook = None  # type: Optional[Path]
     try:
-        real, data, mode = _hook_change(ctx, add=False)
+        real, data, _ = _hook_change(ctx, add=False)
         if data is not None:
-            hook = (real, data, mode)
+            hook = real
     except AisError as e:  # never block uninstall on a settings file ais cannot edit
         steps.append("the ais SessionStart hook: remove it by hand (%s)" % e.message)
 
@@ -910,10 +922,10 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     if plugin is not None:
         print("  %s (SwiftBar plugin recorded in state.json)" % plugin)
     if hook is not None:
-        print("  %s: only ais's SessionStart hook" % hook[0])
+        print("  %s: only ais's SessionStart hook" % hook)
     for e in entries:
         print("  %s%s" % (e, "/ (asks first)" if e == snaps else ""))
-    if not entries:
+    if here and not entries:
         print("  %s/ (empty)" % store.dir)
     if dry_run:
         manual()
@@ -925,7 +937,7 @@ def cmd_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] 
     if plugin is not None:
         _unlink(plugin)  # untrusted path: never a folder, even if swapped in after the check
     if hook is not None:
-        _write_settings(*hook)
+        _apply_hook(ctx, add=False)
     if keep:
         for e in entries:
             if e != snaps:
@@ -1108,6 +1120,13 @@ def _hook_change(ctx: Context, add: bool) -> Tuple[Path, Optional[dict], int]:
     return real, new if changed else None, mode
 
 
+def _apply_hook(ctx: Context, add: bool) -> None:
+    """Re-read after the prompt, so a change made to the file while it waited is kept."""
+    real, data, mode = _hook_change(ctx, add)
+    if data is not None:
+        _write_settings(real, data, mode)
+
+
 def cmd_hook_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str]] = None) -> int:
     """FR-5.7: show, ask, add ais's SessionStart hook to the user settings file."""
     real, data, mode = _hook_change(ctx, add=True)
@@ -1121,7 +1140,7 @@ def cmd_hook_install(ctx: Context, dry_run: bool, answers: Optional[Iterable[str
     if not _yes(answers)("Add it? [y/N] "):
         print("Nothing written.", file=sys.stderr)
         return EXIT_DECLINED
-    _write_settings(real, data, mode)
+    _apply_hook(ctx, add=True)
     print("Added the SessionStart hook to " + str(real))
     return 0
 
@@ -1138,6 +1157,6 @@ def cmd_hook_uninstall(ctx: Context, dry_run: bool, answers: Optional[Iterable[s
     if not _yes(answers)("Remove it? [y/N] "):
         print("Nothing removed.", file=sys.stderr)
         return EXIT_DECLINED
-    _write_settings(real, data, mode)
+    _apply_hook(ctx, add=False)
     print("Removed the SessionStart hook from " + str(real))
     return 0
