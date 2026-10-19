@@ -1,4 +1,4 @@
-"""SwiftBar menu output (FR-4.8 to FR-4.23, FR-6.5). Provider-agnostic: works on the gather_status dict."""
+"""SwiftBar menu output (FR-4.8 to FR-4.24, FR-6.5). Provider-agnostic: works on the gather_status dict."""
 import base64
 import calendar
 import os
@@ -207,9 +207,6 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     out.append("---")
     for a in accounts:
         out.append("Open %s Desktop | %s param1=desktop param2=%s terminal=false sfimage=desktopcomputer"
-                   % (labels[a["name"]], bash, _name(a["name"])))
-    for a in accounts:
-        out.append("Open %s Terminal | %s param1=run param2=%s terminal=true sfimage=terminal"
                    % (labels[a["name"]], bash, _name(a["name"])))
     for a in accounts:  # FR-4.24: the command to paste into any terminal app
         out.append('Copy "ais use %s" | %s param1=use param2=--copy param3=%s terminal=false sfimage=doc.on.clipboard'

@@ -53,8 +53,6 @@ class RenderTest(SwitchCase):
             "---",
             "Open Primary Desktop | bash=%s param1=desktop param2=primary terminal=false sfimage=desktopcomputer" % AIS,
             "Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS,
-            "Open Primary Terminal | bash=%s param1=run param2=primary terminal=true sfimage=terminal" % AIS,
-            "Open Secondary Terminal | bash=%s param1=run param2=secondary terminal=true sfimage=terminal" % AIS,
             'Copy "ais use primary" | bash=%s param1=use param2=--copy param3=primary terminal=false'
             ' sfimage=doc.on.clipboard' % AIS,
             'Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
@@ -87,13 +85,13 @@ class RenderTest(SwitchCase):
         lines = out.split("\n")
         for ln in lines:
             self.assertFalse(any(unicodedata.category(c).startswith("C") for c in ln), ln)
-        # every " | " introduces one of our own actions: 1 resume, 2 desktop, 2 terminal, 2 copy,
+        # every " | " introduces one of our own actions: 1 resume, 2 desktop, 2 copy,
         # or only a fixed icon (FR-4.22): 2 headers, 1 Sessions
         params = [ln.split(" | ")[1] for ln in lines if " | " in ln]
         icons = [p for p in params if re.fullmatch(r"sfimage=(person\.crop\.circle|list\.bullet)", p)]
         self.assertEqual(len(icons), 3)
         acts = [p.split()[0] for p in params if p not in icons]
-        self.assertEqual(sorted(acts), ["bash=" + AIS] * 7)
+        self.assertEqual(sorted(acts), ["bash=" + AIS] * 5)
         self.assertEqual(sum(1 for ln in lines if re.match(r"--[^-]", ln)), 1)
         self.assertEqual(lines[2], "Primary | sfimage=person.crop.circle")  # label "Pri|mary\n" cleaned in the header
         evil = [ln for ln in lines if "Evil" in ln]
@@ -115,7 +113,8 @@ class RenderTest(SwitchCase):
         for hidden in ("/Users/x", "Main task", "Resume", "Quit", UUID):
             self.assertNotIn(hidden, out)
         self.assertIn("Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS, out)
-        self.assertIn("Open Secondary Terminal | bash=%s param1=run param2=secondary terminal=true sfimage=terminal" % AIS, out)
+        self.assertIn('Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
+                      ' sfimage=doc.on.clipboard' % AIS, out)
 
     def test_label_leading_dashes_stripped(self):
         s = status()
@@ -201,9 +200,7 @@ class RenderTest(SwitchCase):
         s["accounts"][1]["label"] = "Wo|rk\nx"
         lines = [ln for ln in menu.render(s, False, AIS).split("\n") if ln.startswith("Open ")]
         self.assertEqual(lines, ["Open Primary Desktop | bash=%s param1=desktop param2=primary terminal=false sfimage=desktopcomputer" % AIS,
-                                 "Open Workx Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS,
-                                 "Open Primary Terminal | bash=%s param1=run param2=primary terminal=true sfimage=terminal" % AIS,
-                                 "Open Workx Terminal | bash=%s param1=run param2=secondary terminal=true sfimage=terminal" % AIS])
+                                 "Open Workx Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer" % AIS])
 
     def test_invalid_session_id_or_account_name_fails(self):
         s = status()
@@ -348,7 +345,7 @@ class UsageRenderTest(SwitchCase):
 
 
 class IconTest(SwitchCase):
-    """FR-4.22: fixed SF Symbol names on headers, Sessions, Resume, Open Desktop and Open Terminal items."""
+    """FR-4.22, FR-4.24: fixed SF Symbol names on headers, Sessions, Resume, Open Desktop and Copy items."""
 
     def test_icons(self):
         lines = menu.render(status(), False, AIS, NOW).split("\n")
@@ -359,7 +356,6 @@ class IconTest(SwitchCase):
                      " sfimage=play.fill" % (AIS, UUID),
                      "Open Secondary Desktop | bash=%s param1=desktop param2=secondary terminal=false sfimage=desktopcomputer"
                      % AIS,
-                     "Open Secondary Terminal | bash=%s param1=run param2=secondary terminal=true sfimage=terminal" % AIS,
                      'Copy "ais use secondary" | bash=%s param1=use param2=--copy param3=secondary terminal=false'
                      ' sfimage=doc.on.clipboard' % AIS):
             with self.subTest(line=line):
