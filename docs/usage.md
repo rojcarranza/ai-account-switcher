@@ -12,7 +12,7 @@ Setup and the full command list are in the [README](../README.md). This page is 
    ais switch
    ```
 
-   It resumes the newest session in this folder on the other account. A session started with plain `claude` counts as last used on the default account, except a plain `claude` with no arguments in a window set by `ais use` (see below), which is recorded on that window's account. The first switch between two accounts asks once before sending the transcript.
+   It resumes the newest session in this folder on the other account. With the hook from `ais hook install` (below), every terminal session is recorded on the account whose sign-in it used, however it was started. Without it, or for a Claude Desktop session, a session ais did not start counts as last used on the default account. The first switch between two accounts asks once before sending the transcript.
 
 To go back later, run `ais switch` again. To pick an older session: `ais switch --pick`.
 
@@ -34,6 +34,14 @@ eval "$(ais shell-init)"
 
 In any terminal app (Terminal, Ghostty, Orca), `ais use work` sets that window to the work account and starts `claude` on it. After that, a plain `claude` in the same window uses work too. Other windows keep their own account. `ais use` on its own prints the account of the window. A window you never set uses the default account.
 
+## Record every session's account
+
+```bash
+ais hook install
+```
+
+Adds one SessionStart hook to `~/.claude/settings.json` (through the symlink, if that file is one). Claude Code then runs `ais record` at every session start and resume, so `ais switch`, `ais status` and the menu know which account each session ran on, even for `claude --resume` or a slot you exported by hand. The hook does nothing on a machine without `~/.local/bin/ais`. `ais hook uninstall` (or `ais uninstall`) removes only that hook.
+
 ## Claude Desktop per account
 
 ```bash
@@ -42,6 +50,12 @@ ais desktop work
 ```
 
 Each opens its own Desktop window, signed in separately. Running it again for an account that is already open prints `<label> Desktop is already open (PID n)` and starts nothing.
+
+### The other account's sessions
+
+Each Desktop lists only its own account's Code-tab sessions, and one Desktop window cannot switch accounts. Desktop's own "Import Claude Code CLI Sessions…" does not change that: it adds terminal sessions and sessions from another data folder signed in to the same account, but not the other account's Desktop sessions (checked 2026-10-19).
+
+To continue a session on the other account, use `Resume in <account>` in the ais menu. It opens the session in Terminal under that account. Quit the Desktop that has it open first (Cmd+Q): the menu shows a session as `open` only while its `claude` process runs, and Desktop can stop that process while a session sits idle.
 
 ## Signing in
 

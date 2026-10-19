@@ -38,8 +38,13 @@ by side (brief MVP bullet 1 and non-goal 1, changed 2026-10-16; design
   sign-in and data, but ties ais to another app's folder; the user chose a
   fresh folder.
 - **One Desktop that switches accounts and lists both accounts' sessions:**
-  what the user wants next; unknown whether the Desktop app allows it.
-  Deferred to rojcarranza/ai-account-switcher#1.
+  explored on 2026-10-19 (`docs/spike-results.md`). Desktop's own import does
+  not bring the other account's sessions; switching needs Desktop's
+  gated multi-account feature or a swap of Desktop's stored sign-in,
+  which NFR-SEC and this ADR's "never signs in for the user" rule out.
+  Kept one instance per account; see
+  `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`
+  (rojcarranza/ai-account-switcher#1).
 - **An `ais` cleanup command for Claude Switcher:** one-time, mostly
   permanent deletion of another app's files; a guide the user follows is
   safer and keeps ADR-0002.

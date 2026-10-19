@@ -83,7 +83,21 @@ Result: ____ (date ____)
 4. Run `ais desktop work` once more while it is open, then `ps -x -o pid=,args= | grep "Claude-ais-work" | grep -v grep`.
 5. Repeat step 1.
 6. Quit Work Desktop, click `Open Work Desktop` in the ais menu.
+7. Quit Personal Desktop (Cmd+Q). In Work Desktop, run "Import Claude Code CLI Sessions…" and confirm. Then, in the ais menu, open a Personal Desktop session and click `Resume in Work`.
 
-Expected: Work is still signed in after step 3; step 4 prints `Work Desktop is already open (PID n)` and `ps` shows one `…/Contents/MacOS/Claude` process for that folder (helpers aside); the `mdat` values are unchanged; step 6 opens Work Desktop with no Terminal window.
+Expected: Work is still signed in after step 3; step 4 prints `Work Desktop is already open (PID n)` and `ps` shows one `…/Contents/MacOS/Claude` process for that folder (helpers aside); the `mdat` values are unchanged; step 6 opens Work Desktop with no Terminal window; in step 7 the import adds no Personal Desktop session to Work Desktop's list (it may add terminal sessions), and `Resume in Work` continues the Personal session in Terminal; while it runs the ais menu shows it `open` with "Quit Claude in <folder> to resume".
+
+Result: ____ (date ____)
+
+## M7 SessionStart hook records the account (FR-3.21, FR-5.7, ADR-0010)
+
+1. `ais hook install`, answer `y`; `ls -l ~/.claude/settings.json` still shows a symlink, and `git -C <dotfiles> diff` shows only the added SessionStart group.
+2. In `~/tmp/ais-hook`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-accounts/work" claude`, type `hi`, `/exit` (not through ais).
+3. `ais status` in that folder.
+4. In the same folder, plain `claude --resume` on the newest session, `/exit`, then `ais status` again.
+5. Start a Code-tab session in Claude Desktop, then check `tail -3 ~/.config/ais/ais.log`.
+6. `ais hook uninstall`, answer `y`; the dotfiles diff is empty again.
+
+Expected: step 3 shows the session last used on Work; step 4 shows Personal; step 5 has no `record` line for the Desktop session; step 6 leaves the file as it was before step 1.
 
 Result: ____ (date ____)
