@@ -280,6 +280,7 @@ def _window_account(ctx: Context) -> Optional[str]:
 
 # FR-3.16: `local` then assign, so a failed `ais use --shell` is not hidden by local's own status;
 # an alias would win over the functions (and `name() {` fails to parse under one), so drop both aliases
+# #79: `claude <args>` goes through `ais run` when it takes the args, or to show a billing refusal (FR-2.2)
 SHELL_INIT = """unalias ais %(cmd)s 2>/dev/null
 function ais {
   if [ "$1" = use ] && [ $# -eq 2 ] && [ "${2#-}" = "$2" ]; then
@@ -294,8 +295,12 @@ function ais {
 function %(cmd)s {
   if [ -n "${%(var)s:-}" ] && [ $# -eq 0 ]; then
     command ais run "$%(var)s"
-  elif [ -n "${%(var)s:-}" ] && command ais run --dry-run "$%(var)s" -- "$@" >/dev/null 2>&1; then
-    command ais run "$%(var)s" -- "$@"
+  elif [ -n "${%(var)s:-}" ]; then
+    command ais run --dry-run "$%(var)s" -- "$@" >/dev/null 2>&1
+    case $? in
+      0|%(billing)d) command ais run "$%(var)s" -- "$@" ;;
+      *) command %(cmd)s "$@" ;;
+    esac
   else
     command %(cmd)s "$@"
   fi
@@ -305,7 +310,7 @@ function %(cmd)s {
 
 def cmd_shell_init(ctx: Context) -> int:
     cmd = ctx.provider_for(Account("", "", DEFAULT_PROVIDER, None)).start_command([])[0]
-    print(SHELL_INIT % {"cmd": cmd, "var": WINDOW_ENV}, end="")
+    print(SHELL_INIT % {"cmd": cmd, "var": WINDOW_ENV, "billing": guards.EXIT_BILLING}, end="")
     return 0
 
 

@@ -152,6 +152,14 @@ class UseTest(TempHomeCase):
         state = json.loads((self.ais_dir / "state.json").read_text())
         self.assertEqual(state["sessions"][str(transcript)]["account"], "work")
 
+    def test_claude_with_args_billing_risk_is_refused(self):
+        # FR-2.2: a billing risk refuses `claude <args>` as it refuses a plain `claude`
+        r = self.shell('ais use work >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
+                       'export ANTHROPIC_API_KEY=x\nclaude --model opus; echo "rc=$?"\n')
+        self.assertEqual(r.stdout.splitlines(), ["rc=77"], r.stderr)
+        self.assertIn("ANTHROPIC_API_KEY", r.stderr)
+        self.assertIsNone(self.slot())
+
     def test_claude_without_ais_use_is_untouched(self):
         r = self.shell('claude; echo "rc=$?"\n')
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
