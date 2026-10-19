@@ -466,13 +466,23 @@ class ClaudeProvider:
             return cmd if data_dir is None else cmd + ["--args", _USER_DATA_DIR + str(data_dir)]
         raise AisError(69, "Claude Desktop not found in " + " or ".join(str(r) for r in app_roots))
 
-    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+    def _desktop_ps(self) -> str:
         rc, out, warn, err = procs.run(["ps", "-x", "-ww", "-o", "pid=,args="],  # -x: Desktop has no terminal
                                        DESKTOP_PS_TIMEOUT, stderr=True)
         if warn or rc != 0:
             raise AisError(69, "cannot check for a running Claude Desktop: "
                            + (warn or err.strip() or "ps exited %s" % rc))
-        return _desktop_pid(out, data_dir)
+        return out
+
+    def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
+        return _desktop_pid(self._desktop_ps(), data_dir)
+
+    def desktop_running(self, data_dirs: Sequence[Optional[Path]]) -> List[bool]:
+        try:
+            out = self._desktop_ps()
+        except AisError:  # FR-4.18: a failed ps shows nothing running and adds no warning
+            return [False] * len(data_dirs)
+        return [_desktop_pid(out, d) is not None for d in data_dirs]
 
     def keychain_credential(self, account: Account) -> Tuple[str, str, str]:
         """Existence check by exit code only: no -w/-g, stdout discarded, so no secret is read."""

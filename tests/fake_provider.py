@@ -44,3 +44,6 @@ class FakeProvider:
 
     def desktop_running_pid(self, data_dir) -> Optional[int]:
         return None
+
+    def desktop_running(self, data_dirs) -> List[bool]:
+        return [False] * len(data_dirs)

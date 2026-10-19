@@ -297,6 +297,33 @@ class StatusTest(DesktopFixture):
         self.put(self.desktop(), record(UUID, title="   "))
         self.assertEqual(self.session(self.status())["title"], "Main task")
 
+    def test_running_desktops_override_and_default(self):
+        """FR-4.18: one ps call; the override folder counts for work."""
+        main = "/Applications/Claude.app/Contents/MacOS/Claude"
+        self.env(FAKE_PS_OUT="101 %s\n301 %s --user-data-dir=%s" % (main, main, self.work_dir))
+        self.assertEqual(self.status()["running"], ["personal", "work"])
+        self.assertEqual(self.calls_text().count("ps -x -ww -o pid=,args="), 1)
+        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.work_dir))
+        self.assertEqual(self.status()["running"], ["work"])
+
+    def test_running_desktop_launched_by_ais(self):
+        self.write_config()
+        main = "/Applications/Claude.app/Contents/MacOS/Claude"
+        self.env(FAKE_PS_OUT="301 %s --user-data-dir=%s" % (main, self.folder("Claude-ais-work")))
+        self.assertEqual(self.status()["running"], ["work"])
+
+    def test_none_running_or_ps_failure_gives_no_running_and_no_warning(self):
+        self.env(FAKE_PS_OUT="")
+        st = self.status()
+        self.assertEqual(st["running"], [])
+        self.env(FAKE_PS_RC="1", FAKE_PS_ERR="ps: nope", FAKE_PS_OUT="101 /Applications/Claude.app/Contents/MacOS/Claude")
+        failed = self.status()
+        self.assertEqual(failed["running"], [])
+        self.assertEqual(failed["self_check"], st["self_check"])
+
+    def test_status_json_has_no_running(self):
+        self.assertNotIn("running", self.status(desktop=False))
+
     def test_empty_desktop_title_keeps_transcript_title(self):
         self.put(self.desktop(), record(UUID, title=""))
         s = self.session(self.status())

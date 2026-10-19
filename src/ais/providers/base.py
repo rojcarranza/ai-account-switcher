@@ -95,3 +95,7 @@ class Provider(Protocol):
     def desktop_running_pid(self, data_dir: Optional[Path]) -> Optional[int]:
         """PID of the Desktop instance using that data folder (None = the default one); AisError(69) if ps fails."""
         ...
+
+    def desktop_running(self, data_dirs: Sequence[Optional[Path]]) -> List[bool]:
+        """Per data folder, whether its Desktop instance runs, from one process listing; all False if it fails."""
+        ...

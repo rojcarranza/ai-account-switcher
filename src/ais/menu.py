@@ -169,6 +169,9 @@ def render(status: dict, privacy: bool, ais_path: str, now: Optional[float] = No
     labels = {a["name"]: sanitize(a["label"]).lstrip("-") or _name(a["name"]) for a in accounts}
     recent = status["recent"]
     out = ["| sfimage=gauge.medium", "---"]  # FR-4.8: an icon only in the menu bar
+    running = [labels[a["name"]] for a in accounts if a["name"] in status.get("running", [])]
+    if running:  # FR-4.18, also in privacy mode
+        out.append("Running: " + ", ".join(running))
     if privacy:
         for a in accounts:
             out.extend(_header(a, labels[a["name"]], now))
