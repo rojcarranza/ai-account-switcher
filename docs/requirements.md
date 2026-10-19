@@ -219,7 +219,7 @@ Documents created by the plan: `docs/spike-results.md` (G-1 to G-3 answers),
 `docs/usage.md` (daily use: `/exit`, then `ais switch`; `/compact` advice).
 
 ## Out of scope
-1. No claude.ai web chat. Claude Desktop only as one separate instance per account (FR-6); no single Desktop that lists both accounts' sessions (next release, rojcarranza/ai-account-switcher#1).
+1. No claude.ai web chat. Claude Desktop only as one separate instance per account (FR-6); no single Desktop that switches accounts or lists both accounts' sessions; the ais menu lists both and `Resume in <account>` continues across accounts (`docs/usage.md`; rojcarranza/ai-account-switcher#1 stays open, design `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`).
 2. No automatic switching when a limit hits; the user runs the switch command.
 3. No second AI provider implemented; only the plug-in shape exists.
 4. No native menu bar or GUI app; an optional SwiftBar plugin shows status and switch actions.
@@ -381,3 +381,7 @@ Change 2026-10-19 (user approved ADR-0010 with ais writing its own hook, rojcarr
 - FR-3.21, FR-5.7, FR-5.8: a Claude Code SessionStart hook that ais installs runs `ais record`, which records each terminal session's account from its Keychain slot when it starts or resumes, however it was launched. Desktop, IDE and SDK sessions are skipped: they carry no slot variable.
 - FR-3.1, FR-3.2: the #79 `AIS_ACCOUNT` assumption is removed; it could name the account of another window (#80 finding 1). An unrecorded session again counts as the default account's.
 - FR-5.1, FR-5.3, FR-5.4, NFR-SEC, NFR-OPS: provider methods for the hook; uninstall removes it; `hook install` and `hook uninstall` take `--dry-run`; ais now writes one thing under `~/.claude`, its own hook entry, through any symlink.
+
+Change 2026-10-19 (user approved, rojcarranza/ai-account-switcher#1):
+- Out of scope 1 reworded: one Desktop shows only its own account's sessions; Desktop's own import does not bring the other account's Desktop sessions (checked in the app, M6 step 7). ais adds no code and never writes Desktop files; issue #1 stays open.
+- Switching accounts inside one Desktop is rejected for now: it would need ais to swap Desktop's stored sign-in (NFR-SEC, FR-6.4), and Desktop's native multi-account feature is gated off for the user (`docs/spike-results.md`).

@@ -51,6 +51,12 @@ ais desktop work
 
 Each opens its own Desktop window, signed in separately. Running it again for an account that is already open prints `<label> Desktop is already open (PID n)` and starts nothing.
 
+### The other account's sessions
+
+Each Desktop lists only its own account's Code-tab sessions, and one Desktop window cannot switch accounts. Desktop's own "Import Claude Code CLI Sessions…" does not change that: it adds terminal sessions and sessions from another data folder signed in to the same account, but not the other account's Desktop sessions (checked 2026-10-19).
+
+To continue a session on the other account, use `Resume in <account>` in the ais menu. It opens the session in Terminal under that account. Quit the Desktop that has it open first (Cmd+Q): the menu shows a session as `open` only while its `claude` process runs, and Desktop can stop that process while a session sits idle.
+
 ## Signing in
 
 Sign in to an extra account only with `ais login <account>`. A `/login` inside a plain `claude` session replaces the **default** account's login, and you would have to sign in to it again.

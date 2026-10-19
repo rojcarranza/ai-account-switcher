@@ -211,6 +211,35 @@ Desktop spike (2026-10-16, for that scope change):
 Result: Pass. Separate Desktop instances per account work with a fresh `--user-data-dir`, with the duplicate-launch caveat above.
 Part 2 (one Desktop showing both accounts' sessions) is deferred to rojcarranza/ai-account-switcher#1.
 
+## Desktop: one app for both accounts (rojcarranza/ai-account-switcher#1) — EXPLORED
+
+Date: 2026-10-19. Claude Desktop 2.42304.0 (its bundled Claude Code 2.1.299), macOS (Darwin 27).
+Method: read-only Python over `~/Library/Application Support/Claude*` (folder listings, `config.json` key names and `lastKnownAccountUuid`, session record key names and counts, `fcache` feature-flag ids), and `grep -a` over `/Applications/Claude.app/Contents/Resources/app.asar` and `en-US.json`. Nothing was written there; no Keychain item, `~/.claude.json`, token value or session title was read or recorded. Account UUIDs are written as A0 and A1.
+
+### Confirmed (seen in files)
+- Data folders present: `Claude` (default), `Claude-Work` (Claude Switcher), `Claude-ais-<extra account>` (ais), plus old spike and test folders. The default folder's `lastKnownAccountUuid` is A1. `Claude-Work` and the ais extra-account folder are both A0.
+- Sign-in lives in each data folder: every signed-in folder's `config.json` has `oauth:tokenCache` and `oauth:tokenCacheV2` keys (values not read). One folder holds one current sign-in.
+- Code-tab sessions: `claude-code-sessions/<account uuid>/<org uuid>/local_<id>.json`, one file per session; `sessionId` equals the file name. Records always carry `sessionId`, `cliSessionId`, `cwd`, `originCwd`, `createdAt`, `lastActivityAt`, `isArchived`, permission fields; most carry `title`. Beside them: `archived-sessions.idx` and `deleted_<uuid>` tombstones (13 bytes).
+- A folder keeps the records of earlier sign-ins: the default folder (A1) also holds an A0 subfolder with one record per org from 2026-10-16.
+- The transcript is not in the record. 122 of 126 current-account records have a `cliSessionId` whose `<id>.jsonl` is in the shared `~/.claude/projects/*/`. Desktop's Code tab runs Claude Code against the same `~/.claude` as the terminal.
+- One transcript already appears in more than one folder and account: 22 `cliSessionId`s are in both the default (A1) and `Claude-Work` (A0) lists, 12 in both `Claude-Work` and the ais folder. Some share the same `local_` id (whole record copied), others have their own `local_` id. 26, 24 and 2 records (default, `Claude-Work`, ais) have `adoptedFromOtherSurface: true`.
+- Desktop has its own import: menu item "Import Claude Code CLI Sessions…", with the text "All importable Claude Code sessions on this computer, whether started in the Code tab or the terminal, are already in your session list…". The code lists sibling `Claude*` data folders under Application Support (origin `sibling-1p`) and terminal transcripts (origin `terminal`), and skips `cliSessionId`s already in the list. It also names an `imported-staging` folder for staged transcripts (not seen on disk).
+- Desktop has a native multi-account feature in code: capability `multiAccount`, behind feature gate `96101707` and the admin setting `authentication.disableMultiAccount` (since 1.46388.1); Code sessions have an `account_switch` teardown reason. Gate `96101707` is absent from the `fcache` flag cache of the default, `Claude-Work` and ais folders.
+
+### Inferred (not checked in the UI)
+- One instance shows only the records under its current `lastKnownAccountUuid`; the A0 records left in the default folder are not listed while A1 is signed in. Because: the record path is keyed by account, and Claude Switcher's handoff needed to copy sessions into the other folder (ADR-0006).
+- Native multi-account switching is off for this user today: its gate is not in the cached flags, so Desktop treats it as unavailable. When Anthropic turns it on, one Desktop may switch accounts by itself.
+- Desktop guards against two loaded sessions claiming one `cliSessionId` inside one instance (`transcriptIdClaims`), not across instances. A session open in both the Personal and Work Desktop at once may write the same transcript from two processes.
+- Fit with the terminal: Desktop and `ais switch` use the same transcripts, so a Desktop session can already be resumed in the terminal on either account with `ais switch` (ADR-0006), and a terminal session can be imported into either Desktop. No ais change to `~/.claude` is needed.
+
+### Answers to the issue's questions
+1. Storage: per data folder, per account UUID, per org, one JSON record per session pointing at a shared `~/.claude` transcript.
+2. One instance listing both accounts: no, while the multi-account gate is off. Desktop's own import does not bring the other account's Desktop sessions over (see "Import checked in the app" below). Only an ais copy of session records into the other folder would, which ADR-0009 (read only) rules out. Switching accounts in one instance would mean ais swapping Desktop's sign-in (`oauth:tokenCache`), which NFR-SEC and ADR-0008 ("never signs in for the user") rule out.
+3. Terminal fit: unchanged. Transcripts stay shared; `ais switch` keeps resuming by `cliSessionId`.
+
+### Import checked in the app (M6 step 7, 2026-10-19)
+The user quit Personal Desktop, ran "Import Claude Code CLI Sessions…" in the ais Work Desktop, and confirmed the offered count. Afterwards the Work folder had 12 new or rewritten records: 10 whose `cliSessionId` is in `Claude-Work`'s list (same account, A0), 2 that are in no Desktop list (terminal only), and none from the default folder's Personal (A1) list. This session's transcript, the newest of 436 in `~/.claude/projects`, was not imported. Result: the import covers terminal sessions and same-account sibling folders, not the other account's Desktop sessions. The earlier inference that it would list both accounts' sessions was wrong.
+
 ## G-2 Terms — DONE
 Sources: https://www.anthropic.com/legal/consumer-terms (effective October 8, 2025 as returned) and https://www.anthropic.com/legal/aup (effective date returned as November 12, 2026; reported as read). Fetched 2026-10-16.
 Findings:
