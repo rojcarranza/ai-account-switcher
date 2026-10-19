@@ -235,7 +235,7 @@ Method: read-only Python over `~/Library/Application Support/Claude*` (folder li
 
 ### Answers to the issue's questions
 1. Storage: per data folder, per account UUID, per org, one JSON record per session pointing at a shared `~/.claude` transcript.
-2. One instance listing both accounts: not by itself while the multi-account gate is off. It needs records for the other account's sessions under the current account, which Desktop's own "Import Claude Code CLI Sessions…" creates. No ais copy of sessions is needed. Switching accounts in one instance would mean ais swapping Desktop's sign-in (`oauth:tokenCache`), which ADR-0002 and NFR-SEC rule out.
+2. One instance listing both accounts: not by itself while the multi-account gate is off. It needs records for the other account's sessions under the current account, which Desktop's own "Import Claude Code CLI Sessions…" creates. No ais copy of sessions is needed. Switching accounts in one instance would mean ais swapping Desktop's sign-in (`oauth:tokenCache`), which NFR-SEC and ADR-0008 ("never signs in for the user") rule out.
 3. Terminal fit: unchanged. Transcripts stay shared; `ais switch` keeps resuming by `cliSessionId`.
 
 ## G-2 Terms — DONE

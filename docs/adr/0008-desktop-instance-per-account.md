@@ -40,7 +40,8 @@ by side (brief MVP bullet 1 and non-goal 1, changed 2026-10-16; design
 - **One Desktop that switches accounts and lists both accounts' sessions:**
   explored on 2026-10-19 (`docs/spike-results.md`). Listing both accounts'
   sessions works through Desktop's own import; switching needs Desktop's
-  gated multi-account feature or a sign-in swap that ADR-0002 forbids.
+  gated multi-account feature or a swap of Desktop's stored sign-in,
+  which NFR-SEC and this ADR's "never signs in for the user" rule out.
   Kept one instance per account; see
   `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`
   (rojcarranza/ai-account-switcher#1).

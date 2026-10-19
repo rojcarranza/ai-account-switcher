@@ -9,7 +9,7 @@ Issue #1 asks for one Claude Desktop that switches between Personal and Work and
 
 ## What the exploration changed
 - **Seeing both accounts' sessions needs no ais code.** Desktop keeps one session list per data folder and account, but each record only points at a transcript in the shared `~/.claude`. Desktop's own menu item "Import Claude Code CLI Sessions…" adds sessions from the other account's folder and from the terminal to the current list, without copying transcripts. The user's folders already share sessions this way.
-- **Switching accounts inside one Desktop cannot be done by ais.** Desktop keeps one sign-in per data folder (`oauth:tokenCache` in `config.json`). Desktop has a native `multiAccount` feature, but it is behind a server-side gate that is off for this user (inferred from the flag cache). The only ais route is to swap Desktop's stored sign-in. That reads and writes a credential, which ADR-0002, NFR-SEC and FR-6.4 forbid.
+- **Switching accounts inside one Desktop cannot be done by ais.** Desktop keeps one sign-in per data folder (`oauth:tokenCache` in `config.json`). Desktop has a native `multiAccount` feature, but it is behind a server-side gate that is off for this user (inferred from the flag cache). The only ais route is to swap Desktop's stored sign-in. That reads and writes a credential, which NFR-SEC and ADR-0008 forbid.
 
 ## Decision (author's call)
 1. Keep one Desktop instance per account (ADR-0008). Do not build an account switcher inside one Desktop.

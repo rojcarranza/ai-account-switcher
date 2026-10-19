@@ -84,7 +84,7 @@ git commit -m "docs(desktop): explain both accounts' sessions via Desktop import
 - [ ] **Step 4: Rewrite the ADR-0008 alternative bullet.** It now says:
   - **One Desktop that switches accounts and lists both accounts' sessions:** explored on 2026-10-19 (`docs/spike-results.md`).
   - Listing both accounts' sessions works through Desktop's own import.
-  - Switching needs Desktop's gated multi-account feature, or a sign-in swap that ADR-0002 forbids.
+  - Switching needs Desktop's gated multi-account feature, or a sign-in swap that NFR-SEC and ADR-0008 rule out.
   - Kept one instance per account; see `docs/superpowers/specs/2026-10-19-desktop-both-accounts-design.md`.
 
   The Decision section stays unchanged.
