@@ -445,6 +445,16 @@ class RenderProcessTest(SwitchCase):
         self.assertLess(took, 8)
         self.assertTrue(out.startswith("| sfimage=gauge.medium\n"), out)
 
+    def test_render_with_hung_desktop_ps_shows_menu_without_running_line(self):
+        """FR-4.18: a ps that does not answer counts as failed, not as a menu failure."""
+        self.last_used("personal")
+        self.env(FAKE_PGREP_OUT="", FAKE_PS_SLEEP="30")
+        code, out, err, _ = self.render()
+        self.assertEqual(code, 0, err)
+        self.assertIn("Personal | sfimage=person.crop.circle", out.split("\n"), out)
+        self.assertNotIn("Running:", out)
+        self.assertNotIn("ais ⚠", out)
+
     def test_render_with_hung_lsof_finishes_in_5s(self):
         child = self.home / "lsof.child"
         self.env(FAKE_PGREP_OUT="123", FAKE_PS_OUT="123 claude", FAKE_LSOF_HANG="1",
