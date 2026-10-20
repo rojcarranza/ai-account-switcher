@@ -62,13 +62,15 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   `graph.html`, `manifest.json`, `.graphify_labels.json`). `cost.json` and
   `cache/` are local and gitignored.
 - Run `graphify hook install` once per clone: post-commit and post-checkout
-  hooks rebuild the graph from code, and a union merge driver
-  (`.gitattributes`) resolves `graph.json` conflicts. Run `graphify update .`
-  after pulls and merges.
+  hooks rebuild the local graph in the background, and it registers the
+  union merge driver that `.gitattributes` names for `graph.json` (without
+  it, git falls back to a text merge). Run `graphify update .` after pulls
+  and merges.
 - After changing docs, run `/graphify . --update`.
-- Feature PRs never stage `graphify-out/` (parallel branches would conflict
-  on graph.json): run `git restore graphify-out` before committing. Refresh
-  the committed graph on its own PR when it falls behind main.
+- Feature PRs never stage `graphify-out/`: the hooks leave it modified after
+  code commits, so run `git restore graphify-out` before committing and
+  before switching branches. Refresh the committed graph on its own PR when
+  it falls behind main.
 
 ## When compacting
 - Keep: current task, modified files, test commands, open G-1 findings.
