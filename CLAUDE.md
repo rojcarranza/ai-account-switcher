@@ -58,6 +58,13 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   `graphify query "<question>"` if `graphify-out/graph.json` exists.
 - `graphify-out/` is committed on main, so every worktree starts with a
   graph. No graph at all: build it with `/graphify .` first.
+- Only the graph is committed (`graph.json`, `GRAPH_REPORT.md`,
+  `graph.html`, `manifest.json`, `.graphify_labels.json`). `cost.json` and
+  `cache/` are local and gitignored.
+- Run `graphify hook install` once per clone: post-commit and post-checkout
+  hooks rebuild the graph from code, and a union merge driver
+  (`.gitattributes`) resolves `graph.json` conflicts. Run `graphify update .`
+  after pulls and merges.
 - After changing docs, run `/graphify . --update`.
 - Feature PRs never stage `graphify-out/` (parallel branches would conflict
   on graph.json): run `git restore graphify-out` before committing. Refresh
