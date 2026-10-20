@@ -1,3 +1,7 @@
 dist/
 __pycache__/
 spike/raw/
+# graphify: commit the graph, not the local cost report or extraction cache
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/graph.html
