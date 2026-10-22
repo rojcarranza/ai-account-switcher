@@ -128,9 +128,10 @@ No network API. The interfaces are:
 - **Envs:** one: the user's Mac (ADR-0004). No servers, no IaC.
 - **Build:** `python3 -m zipapp` produces `dist/ais`; `make install`
   copies it to `~/.local/bin/ais`.
-- **CI:** GitHub Actions: Linux on Python 3.9 and 3.12 with fake `claude`,
-  `security`, `pgrep`, `lsof`, `ps` and `open`; one `macos-latest` job on Python 3.9 for
-  path normalization (NFD), `lsof`/`pgrep` parsing and menu rendering.
+- **CI:** none on GitHub; checks run locally through the no-mistakes gate
+  (`full-suite`: `make lint test build`; `full-suite-py312`: the same under
+  uv Python 3.12; `no_ci: true`), with fake `claude`, `security`, `pgrep`,
+  `lsof`, `ps` and `open` (ADR-0004, amended 2026-10-22, #90).
 - **Rollback:** `make install` keeps the previous binary as
   `~/.local/bin/ais.prev`; `ais uninstall` removes ais's config and keeps
   snapshots.
