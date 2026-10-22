@@ -1,0 +1,11 @@
+no_ci: true
+allow_repo_commands: false
+commands:
+  lint: make lint
+gates:
+  - name: full-suite
+    after: test
+    command: "make lint test build"
+  - name: full-suite-py312
+    after: test
+    command: "uv run --no-project --python 3.12 make lint test build"

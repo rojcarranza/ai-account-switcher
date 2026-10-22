@@ -27,6 +27,7 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
 - Every change lands through a pull request that links its issue
   (`Closes #N`, or `Refs #N` when the PR does only part of it). No direct
   pushes to main.
+- Push through `git push no-mistakes`, never `origin`.
 - After opening a PR, run `/code-review` on it, fix every finding, and run
   it again until it is clean before asking to merge. If fixing a finding
   would mean editing a test to make it pass, ask first.
