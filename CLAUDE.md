@@ -50,8 +50,8 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
 - Never set `CLAUDE_CONFIG_DIR`; it would split the shared ~/.claude.
 - Transcript text (titles, folders) is untrusted: sanitize before the
   SwiftBar menu, never put it in an action.
-- macOS ships `/usr/bin/python3` 3.9 with the Command Line Tools; CI also
-  runs 3.12.
+- macOS ships `/usr/bin/python3` 3.9 with the Command Line Tools; the no-mistakes
+  gate also runs 3.12.
 
 ## graphify
 - Skip this section if the `graphify` command is not installed.

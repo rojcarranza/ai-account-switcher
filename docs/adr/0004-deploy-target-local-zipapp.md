@@ -8,12 +8,12 @@ One user, one Mac, $0 (brief constraints). No servers.
 ## Decision
 `python3 -m zipapp` builds one executable file `dist/ais`. `make install`
 copies it to `~/.local/bin/ais` and keeps the previous one as
-`ais.prev`. CI runs tests on GitHub Actions: Linux on Python 3.9 and 3.12 with fakes,
-plus one `macos-latest` job on Python 3.9 for path normalization, process
-and `lsof` parsing, and menu rendering. (Free-minute limits for private repos could not be
-checked from the planning session; The review noted macOS minutes are billed at a higher rate than
-Linux for private repos; verify before enabling the macOS job.
-Verify on GitHub's billing page before relying on CI.)
+`ais.prev`. Checks run locally through the no-mistakes gate
+(`.no-mistakes.yaml`): `full-suite` runs `make lint test build`,
+`full-suite-py312` runs the same under uv Python 3.12, and `no_ci: true`
+is set. GitHub Actions is removed.
+
+Amended 2026-10-22 (#90): GitHub Actions CI replaced by the no-mistakes gate.
 
 ## Alternatives considered
 - **`pipx` / `uv tool install`:** clean isolation, but needs one more tool
