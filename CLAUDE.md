@@ -28,9 +28,11 @@ docs/architecture.md and docs/adr/. Requirements: docs/requirements.md.
   (`Closes #N`, or `Refs #N` when the PR does only part of it). No direct
   pushes to main.
 - Push through `git push no-mistakes`, never `origin`.
-- After opening a PR, run `/code-review` on it, fix every finding, and run
-  it again until it is clean before asking to merge. If fixing a finding
-  would mean editing a test to make it pass, ask first.
+- After opening a PR that did not go through no-mistakes, run `/code-review`
+  on it, fix every finding, and run it again until it is clean before asking
+  to merge. Changes pushed through `git push no-mistakes` are reviewed by its
+  Review step instead. If fixing a finding would mean editing a test to make
+  it pass, ask first.
 - After every change passes its tests, install it on the Mac so the user
   can check the menu, without being asked: `make install` (keeps
   `~/.local/bin/ais.prev`); if `ais menu install --dry-run` shows the
