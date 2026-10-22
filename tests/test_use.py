@@ -122,7 +122,11 @@ class UseTest(TempHomeCase):
                            % (shlex.quote(str(SRC)), shlex.quote(sys.executable)))
         wrapper.chmod(0o755)
         env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
-        return subprocess.run([self.shell_name, "-c", before + 'eval "$(command ais shell-init)" || exit 9\n' + script],
+        # a file, not -c: zsh parses a whole -c string before running it, but reads a file (like ~/.zshrc)
+        # command by command, so aliases from `before` apply to the lines after them
+        path = self.home / "script.sh"
+        path.write_text(before + 'eval "$(command ais shell-init)" || exit 9\n' + script)
+        return subprocess.run([self.shell_name, str(path)],
                               env=env, cwd=str(self.proj), capture_output=True, text=True, timeout=60)
 
     def test_function_sets_window_then_plain_claude_follows(self):
