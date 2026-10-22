@@ -4,8 +4,10 @@ import io
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 from unittest import mock
 
@@ -17,6 +19,9 @@ SLOT = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 
 
 class UseTest(TempHomeCase):
+    shell_name = "bash"
+    alias_opt = "shopt -s expand_aliases"
+
     def setUp(self):
         super().setUp()
         self.secondary = str(self.home / ".claude-accounts" / "secondary dir")  # a space: quoting matters
@@ -109,7 +114,7 @@ class UseTest(TempHomeCase):
         self.assertEqual(code, 64)
 
     def shell(self, script, before=""):
-        """Run script in bash after loading `ais shell-init`, with a real `ais` command on PATH."""
+        """Run script in `shell_name` after loading `ais shell-init`, with a real `ais` command on PATH."""
         bin_dir = self.home / "bin"
         bin_dir.mkdir(exist_ok=True)
         wrapper = bin_dir / "ais"
@@ -117,8 +122,15 @@ class UseTest(TempHomeCase):
                            % (shlex.quote(str(SRC)), shlex.quote(sys.executable)))
         wrapper.chmod(0o755)
         env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
-        return subprocess.run(["bash", "-c", before + 'eval "$(command ais shell-init)" || exit 9\n' + script],
-                              env=env, cwd=str(self.proj), capture_output=True, text=True, timeout=60)
+        body = before + 'eval "$(command ais shell-init)" || exit 9\n' + script
+        args = ["bash", "-c", body]
+        if self.shell_name == "zsh":
+            # zsh parses a whole -c string before running it, but reads a file (like ~/.zshrc)
+            # command by command, so aliases from `before` apply to the lines after them
+            path = self.home / "script.zsh"
+            path.write_text(body)
+            args = ["zsh", str(path)]
+        return subprocess.run(args, env=env, cwd=str(self.proj), capture_output=True, text=True, timeout=60)
 
     def test_function_sets_window_then_plain_claude_follows(self):
         r = self.shell('ais use secondary; echo "rc=$? acct=$AIS_ACCOUNT"\n'
@@ -171,6 +183,19 @@ class UseTest(TempHomeCase):
 
     def test_init_survives_an_alias_named_claude(self):
         r = self.shell('ais use secondary >/dev/null 2>&1\nrm -f "$FAKE_CLAUDE_ARGV_LOG.env"\n'
-                       'claude; echo "rc=$?"\n', before="shopt -s expand_aliases\nalias claude=false ais=false\n")
+                       'claude; echo "rc=$?"\n', before=self.alias_opt + "\nalias claude=false ais=false\n")
         self.assertEqual(r.stdout.splitlines(), ["rc=0"], r.stderr)
         self.assertEqual(self.slot(), "slot=" + self.secondary)
+
+
+@unittest.skipUnless(shutil.which("zsh"), "zsh is not installed")
+class ZshUseTest(UseTest):
+    """FR-3.16: the shell-init snippet is for zsh too; rerun only the tests that go through shell()."""
+    shell_name = "zsh"
+    alias_opt = "setopt aliases"
+
+    SHELL_TESTS = ("test_function_", "test_plain_claude_", "test_claude_", "test_other_ais_", "test_init_survives_")
+    for _name in dir(UseTest):
+        if _name.startswith("test_") and not _name.startswith(SHELL_TESTS):
+            locals()[_name] = None  # None is not collected: the non-shell tests already ran under UseTest
+    del _name
