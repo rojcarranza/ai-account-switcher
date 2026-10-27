@@ -169,6 +169,15 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
     return rc
 
 
+def _set_holds(d: dict, holds: Optional[str]) -> dict:
+    d = dict(d)
+    if holds:
+        d["default_holds"] = holds
+    else:
+        d.pop("default_holds", None)
+    return d
+
+
 def cmd_default(ctx: Context, account: Optional[str], dry_run: bool) -> int:
     """ADR-0011: make the machine's default sign-in hold `account`'s login by exchanging two Keychain items.
 
@@ -177,8 +186,10 @@ def cmd_default(ctx: Context, account: Optional[str], dry_run: bool) -> int:
     default = cfg.accounts[cfg.default]
     provider = ctx.provider_for(default)
     held = ctx.store.read_json("state.json").get("default_holds")
-    if not (isinstance(held, str) and held != cfg.default and held in cfg.accounts and cfg.accounts[held].cred_dir):
-        held = None
+    if isinstance(held, str) and not (held != cfg.default and held in cfg.accounts and cfg.accounts[held].cred_dir):
+        raise AisError(EXIT_CONFIG, "state.json says the default sign-in holds %r, which is not an extra account in "
+                       "config.json; fix or remove default_holds in state.json" % held)
+    held = held if isinstance(held, str) else None
     current = held or cfg.default
     if account is None:
         print("the default sign-in holds %s (%s)" % (current, cfg.accounts[current].label))
@@ -192,29 +203,40 @@ def cmd_default(ctx: Context, account: Optional[str], dry_run: bool) -> int:
     steps = ([held] if held else []) + ([target.name] if target.name != cfg.default else [])
     if dry_run:
         for name in steps:
+            if provider.read_login(None) is None or provider.read_login(cfg.accounts[name].cred_dir) is None:
+                raise AisError(EXIT_NO_INPUT, "no sign-in found for %s; run `ais login %s` first" % (name, name))
             print("would exchange the default sign-in with %s's sign-in" % name)
         return 0
     with ctx.store.switch_mutex():
+        plan = []  # check every login first, so a failure changes nothing
+        owner = current
         for name in steps:
             slot = cfg.accounts[name].cred_dir
-            owner = current if name == target.name else name  # who holds the default slot now / the extra slot now
             mine, theirs = provider.read_login(None), provider.read_login(slot)
-            for login, who in ((mine, owner), (theirs, name if owner != name else cfg.default)):
+            for login, who in ((mine, owner), (theirs, name)):
                 if login is None:
                     raise AisError(EXIT_NO_INPUT, "no sign-in found for %s; run `ais login %s` first" % (who, who))
-            provider.write_login(None, theirs)
+            plan.append((name, slot, mine, theirs))
+            owner = cfg.default if name == held else name
+        for name, slot, mine, theirs in plan:
+            # -U matches service and account, so each secret goes under the destination item's own account
+            provider.write_login(None, (mine[0], theirs[1]))
             try:
-                provider.write_login(slot, mine)
-            except AisError:
+                provider.write_login(slot, (theirs[0], mine[1]))
+            except AisError as e:
                 try:
                     provider.write_login(None, mine)  # put the first item back
-                except AisError:
-                    pass
+                except AisError as r:
+                    raise AisError(e.code, "%s; restoring the default sign-in also failed (%s): the Keychain may "
+                                   "hold %s's login twice, run `ais login` for both accounts" % (e.message, r.message, name))
                 raise
             now_held = None if name == held else name
-            ctx.store.update_json("state.json", lambda d, v=now_held: {k: x for k, x in dict(
-                d, **({"default_holds": v} if v else {})).items() if v or k != "default_holds"})
-            current = cfg.default if now_held is None else now_held
+            try:
+                ctx.store.update_json("state.json", lambda d, v=now_held: _set_holds(d, v))
+            except (AisError, OSError) as e:
+                raise AisError(EXIT_CANNOT_WRITE, "the Keychain is already exchanged but state.json could not be "
+                               "written (%s); run `ais default %s` again to repair" % (getattr(e, "message", e), target.name))
+            held = now_held
     idents = ctx.store.read_json("state.json").get("identities")
     ident = idents.get(target.name) if isinstance(idents, dict) else None
     if not (isinstance(ident, dict) and provider.write_identity(ctx.store.home, ident)):

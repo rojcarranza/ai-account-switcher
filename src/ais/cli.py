@@ -87,7 +87,9 @@ def _context(started: float, config: Optional[Config] = None, cwd_optional: bool
         if swap:  # ADR-0011: the default sign-in may hold another account's login
             try:
                 holds = store.read_json("state.json").get("default_holds")
-            except AisError:  # a damaged state.json is reported where it is used, not here
+            except AisError as e:  # without it ais would use the wrong Keychain slot: say so
+                print("ais: warning: %s; the default sign-in swap (ais default) is not applied" % e.message,
+                      file=sys.stderr)
                 holds = None
             config = apply_default_swap(config, holds)
     return core.Context(store, config,

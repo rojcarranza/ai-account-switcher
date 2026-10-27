@@ -166,3 +166,29 @@ class DefaultTest(TempHomeCase):
         self.claude_json.write_text(json.dumps({"oauthAccount": S_ID}))
         self.assertEqual(self.ais("login", "secondary")[0], 0)
         self.assertEqual(self.state()["identities"]["secondary"], S_ID)
+
+    def test_secrets_go_under_each_destination_items_own_account(self):
+        # code review: -U matches service+account, so an exchange must keep each item's account attribute
+        (self.kc / self.second_svc).write_text("other-user\n" + S_SECRET)
+        self.assertEqual(self.ais("default", "secondary")[0], 0)
+        self.assertEqual((self.kc / self.default_svc).read_text().split("\n")[0], "lab")
+        self.assertEqual((self.kc / self.second_svc).read_text().split("\n")[0], "other-user")
+        self.assertEqual(self.item(self.default_svc), S_SECRET)
+
+    def test_swap_back_with_the_held_account_missing_changes_nothing(self):
+        self.ais("default", "secondary")
+        (self.kc / self.second_svc).unlink()
+        self.assertEqual(self.ais("default", "primary")[0], 66)
+        self.assertEqual(self.item(self.default_svc), S_SECRET)
+        self.assertEqual(self.state()["default_holds"], "secondary")
+
+    def test_unknown_holder_in_state_is_reported_not_ignored(self):
+        (self.ais_dir / "state.json").write_text(json.dumps({"default_holds": "gone"}))
+        code, _, err = self.ais("default")
+        self.assertEqual(code, 78)
+        self.assertIn("default_holds", err)
+
+    def test_damaged_state_warns_that_the_swap_is_not_applied(self):
+        (self.ais_dir / "state.json").write_text("{broken")
+        _, _, err = self.ais("run", "primary", "--dry-run")
+        self.assertIn("swap", err)

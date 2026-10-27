@@ -632,7 +632,10 @@ class ClaudeProvider:
             tmp = path.with_name(path.name + ".ais-tmp")
             fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
             with os.fdopen(fd, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(str(tmp), str(path))
             return True
         except (OSError, ValueError):

@@ -54,6 +54,8 @@ def run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = N
 def _wait(proc: "subprocess.Popen[str]", tool: str, timeout: float, stdin: Optional[str] = None) -> Tuple[Optional[int], str, Optional[str], str]:
     try:
         out, err = proc.communicate(input=stdin, timeout=timeout)
+    except BrokenPipeError:  # the child exited before reading its input
+        out, err = proc.communicate()
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
