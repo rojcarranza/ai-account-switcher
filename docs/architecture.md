@@ -162,11 +162,13 @@ network boundary to Anthropic (Claude Code's, not ais's).
 - No new service, dependency or datastore without an ADR. Standard
   library only (ADR-0001).
 - Never write to `~/.claude`, `~/.claude.json`, `~/.claude-accounts/`, the
-  Keychain or Claude Switcher's files.
+  Keychain or Claude Switcher's files. Only `ais default` (ADR-0011) swaps the
+  two Keychain items and replaces the `oauthAccount` key of `~/.claude.json`.
 - Never set `CLAUDE_CONFIG_DIR`. Never pass `CLAUDE_SECURESTORAGE_CONFIG_DIR`
   as an empty string; omit it for the default account; never re-spell a
   stored credDir.
-- Never call `security` with `-w` or `-g`.
+- Never call `security` with `-w` or `-g`, except `ais default` (ADR-0011), which
+  reads in memory only and writes through `security -i` on stdin.
 - Never put transcript or file-system text into a SwiftBar action.
 - Provider-specific code and constants live only in `providers/<name>.py`.
 

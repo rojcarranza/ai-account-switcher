@@ -28,31 +28,32 @@ def kill_live() -> None:
 
 
 def run(cmd: Sequence[str], timeout: float, env: Optional[Mapping[str, str]] = None,
-        stderr: bool = False) -> Tuple[Optional[int], str, Optional[str], str]:
+        stderr: bool = False, stdin: Optional[str] = None) -> Tuple[Optional[int], str, Optional[str], str]:
     """(returncode, stdout, warning, stderr). A timeout kills the whole process group, children included.
 
     stderr is captured only when asked for; otherwise it is dropped and the last item is "".
+    stdin text, when given, is written to the child's stdin (never argv: used for secrets).
     """
     tool = cmd[0]
     with _LOCK:  # spawn and register atomically against kill_live()
         if _STOPPED:
             return None, "", "cannot run %s: stopped" % tool, ""
         try:
-            proc = subprocess.Popen(list(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(list(cmd), stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE if stderr else subprocess.DEVNULL, encoding="utf-8",
                                     errors="replace", start_new_session=True, env=env)
         except OSError as e:
             return None, "", "cannot run %s: %s" % (tool, e), ""
         _LIVE.add(proc)
     try:
-        return _wait(proc, tool, timeout)
+        return _wait(proc, tool, timeout, stdin)
     finally:
         _LIVE.discard(proc)
 
 
-def _wait(proc: "subprocess.Popen[str]", tool: str, timeout: float) -> Tuple[Optional[int], str, Optional[str], str]:
+def _wait(proc: "subprocess.Popen[str]", tool: str, timeout: float, stdin: Optional[str] = None) -> Tuple[Optional[int], str, Optional[str], str]:
     try:
-        out, err = proc.communicate(timeout=timeout)
+        out, err = proc.communicate(input=stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from ais import procs
 from ais.accounts import Account, same_folder
 from ais.errors import AisError
-from ais.store import EXIT_CONFIG
+from ais.store import EXIT_CANNOT_WRITE, EXIT_CONFIG
 from ais.providers.base import Session
 
 PROCESS_NAME = "claude"  # what pgrep -x matches (spike (g))
@@ -30,6 +30,7 @@ TESTED_VERSIONS = ("2.1.301", "2.1.302")  # min, max inclusive (spike (f))
 VERSION_TIMEOUT = 10
 AUTH_TIMEOUT = 10
 KEYCHAIN_TIMEOUT = 5
+CLAUDE_JSON = ".claude.json"
 KEYCHAIN_NOT_FOUND = 44  # errSecItemNotFound
 MANAGED_PROFILE = "com.anthropic.claudecode"
 LIMIT_MARKER = {"isApiErrorMessage": True, "error": "rate_limit"}  # spike (j); used by task 14
@@ -578,6 +579,64 @@ class ClaudeProvider:
             return "no", "keychain", ""
         lines = err.splitlines()
         return "unknown", "keychain", "security exited %d%s" % (rc, ": " + lines[0] if lines else "")
+
+    def read_login(self, cred_dir: Optional[str]) -> Optional[Tuple[str, str]]:
+        """ADR-0011: (account attribute, secret) of a slot's Keychain item, in memory only; None when it has none.
+
+        The secret is read with -w into this process and never printed, logged or passed in an argument."""
+        argv = ["security", "find-generic-password", "-s", keychain_service(cred_dir)]
+        rc, out, warn, err = procs.run(argv, KEYCHAIN_TIMEOUT, stderr=True)
+        if warn:
+            raise AisError(EXIT_CANNOT_WRITE, "cannot read the Keychain item: " + warn.splitlines()[0])
+        if rc == KEYCHAIN_NOT_FOUND:
+            return None
+        match = re.search(r'^\s*"acct"<blob>="(.*)"$', out, re.M)
+        if rc != 0 or not match:
+            raise AisError(EXIT_CANNOT_WRITE, "cannot read the Keychain item (security exited %s)" % rc)
+        rc, secret, warn, _ = procs.run(argv + ["-w"], KEYCHAIN_TIMEOUT)
+        if warn or rc != 0:
+            raise AisError(EXIT_CANNOT_WRITE, "cannot read the Keychain item (security exited %s)" % rc)
+        return match.group(1), secret.rstrip("\n")
+
+    def write_login(self, cred_dir: Optional[str], login: Tuple[str, str]) -> None:
+        """ADR-0011: update a slot's Keychain item. The command, with the secret as hex, goes to `security -i` on
+        stdin, so the secret is in no argument list."""
+        acct, secret = login
+        quote = lambda t: '"' + t.replace("\\", "\\\\").replace('"', '\\"') + '"'  # noqa: E731
+        line = "add-generic-password -U -s %s -a %s -X %s\n" % (
+            quote(keychain_service(cred_dir)), quote(acct), secret.encode("utf-8").hex())
+        rc, _, warn, _ = procs.run(["security", "-i"], KEYCHAIN_TIMEOUT, stdin=line)
+        if warn or rc != 0:
+            raise AisError(EXIT_CANNOT_WRITE, "cannot update the Keychain item (security exited %s)" % rc)
+
+    def read_identity(self, home: Path) -> Optional[Dict[str, Any]]:
+        """The signed-in profile (`oauthAccount`, no token) in the shared ~/.claude.json, or None."""
+        try:
+            with open(str(home / CLAUDE_JSON)) as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return None
+        ident = data.get("oauthAccount") if isinstance(data, dict) else None
+        return ident if isinstance(ident, dict) else None
+
+    def write_identity(self, home: Path, ident: Dict[str, Any]) -> bool:
+        """Replace only the `oauthAccount` key of ~/.claude.json (atomic rename); False when the file is unusable."""
+        path = (home / CLAUDE_JSON).resolve()
+        try:
+            with open(str(path)) as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return False
+            data["oauthAccount"] = ident
+            mode = stat.S_IMODE(os.stat(str(path)).st_mode)
+            tmp = path.with_name(path.name + ".ais-tmp")
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(str(tmp), str(path))
+            return True
+        except (OSError, ValueError):
+            return False
 
     def has_credential(self, account: Account, base_env: Mapping[str, str]) -> Tuple[str, str, str]:
         env, _ = self.env_for(account, base_env)

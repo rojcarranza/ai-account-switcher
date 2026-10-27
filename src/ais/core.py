@@ -154,11 +154,75 @@ def cmd_login(ctx: Context, account: str, dry_run: bool, allow_api_key: bool = F
         print(provider.describe_env(env) + " ".join(shlex.quote(a) for a in cmd))
         return 0
     rc = _spawn(ctx, provider, cmd, env, acc.label)
+    if rc == 0:  # ADR-0011: remember who signed in, so `ais default` can restore the shared profile
+        try:
+            ident = provider.read_identity(ctx.store.home)
+            if ident is not None:
+                ctx.store.update_json("state.json", lambda d: dict(d, identities=dict(
+                    d.get("identities") if isinstance(d.get("identities"), dict) else {}, **{acc.name: ident})))
+        except (AisError, OSError) as e:
+            guards.print_warnings([getattr(e, "message", str(e))])
     try:
         ctx.store.log("login", acc.name, "", "exit %d" % rc)
     except AisError as e:  # claude already ran: its exit code wins over a failed log write
         guards.print_warnings([e.message])
     return rc
+
+
+def cmd_default(ctx: Context, account: Optional[str], dry_run: bool) -> int:
+    """ADR-0011: make the machine's default sign-in hold `account`'s login by exchanging two Keychain items.
+
+    ctx.config is the raw config (no swap applied); state.json `default_holds` records the exchange."""
+    cfg = ctx.config
+    default = cfg.accounts[cfg.default]
+    provider = ctx.provider_for(default)
+    held = ctx.store.read_json("state.json").get("default_holds")
+    if not (isinstance(held, str) and held != cfg.default and held in cfg.accounts and cfg.accounts[held].cred_dir):
+        held = None
+    current = held or cfg.default
+    if account is None:
+        print("the default sign-in holds %s (%s)" % (current, cfg.accounts[current].label))
+        return 0
+    target = cfg.get(account)
+    if target.provider != default.provider:
+        raise AisError(EXIT_USAGE, "%s and %s use different providers" % (default.name, target.name))
+    if target.name == current:
+        print("the default sign-in already holds %s (%s)" % (target.name, target.label))
+        return 0
+    steps = ([held] if held else []) + ([target.name] if target.name != cfg.default else [])
+    if dry_run:
+        for name in steps:
+            print("would exchange the default sign-in with %s's sign-in" % name)
+        return 0
+    with ctx.store.switch_mutex():
+        for name in steps:
+            slot = cfg.accounts[name].cred_dir
+            owner = current if name == target.name else name  # who holds the default slot now / the extra slot now
+            mine, theirs = provider.read_login(None), provider.read_login(slot)
+            for login, who in ((mine, owner), (theirs, name if owner != name else cfg.default)):
+                if login is None:
+                    raise AisError(EXIT_NO_INPUT, "no sign-in found for %s; run `ais login %s` first" % (who, who))
+            provider.write_login(None, theirs)
+            try:
+                provider.write_login(slot, mine)
+            except AisError:
+                try:
+                    provider.write_login(None, mine)  # put the first item back
+                except AisError:
+                    pass
+                raise
+            now_held = None if name == held else name
+            ctx.store.update_json("state.json", lambda d, v=now_held: {k: x for k, x in dict(
+                d, **({"default_holds": v} if v else {})).items() if v or k != "default_holds"})
+            current = cfg.default if now_held is None else now_held
+    idents = ctx.store.read_json("state.json").get("identities")
+    ident = idents.get(target.name) if isinstance(idents, dict) else None
+    if not (isinstance(ident, dict) and provider.write_identity(ctx.store.home, ident)):
+        guards.print_warnings(["could not update the signed-in profile in ~/.claude.json; run `ais login %s` "
+                               "once so ais can record it" % target.name])
+    ctx.store.log("default", target.name, "", "ok")
+    print("the default sign-in now holds %s (%s)" % (target.name, target.label))
+    return 0
 
 
 EXIT_DESKTOP = 69

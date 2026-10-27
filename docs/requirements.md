@@ -155,6 +155,7 @@ User story: As a developer who just hit a usage limit, I want one command to reo
 - FR-3.19 (added 2026-10-19, #77) WHEN the user runs `ais use` with no account THE SYSTEM SHALL print `This terminal: <label>` for the account named by `AIS_ACCOUNT`, or `This terminal: <default label> (default)` when `AIS_ACCOUNT` is unset or names no configured account.
 - FR-3.20 (added 2026-10-19, #77) WHEN the user runs `ais use --copy <account>` THE SYSTEM SHALL put the text `ais use <account>` on the clipboard with `pbcopy` and start nothing; IF the account is unknown THEN it SHALL exit 64.
 - FR-3.21 (added 2026-10-19, #81, ADR-0010) WHEN Claude Code's SessionStart hook (FR-5.7) runs `ais record` THE SYSTEM SHALL read the hook's stdin JSON (at most 64 KiB), and WHERE `CLAUDE_CODE_ENTRYPOINT` is unset or `cli`, `session_id` is a lowercase UUID and `transcript_path` is `<session_id>.jsonl` in a folder whose realpath is directly under `~/.claude/projects`, record as the session's last-used account the configured account whose stored credDir equals `CLAUDE_SECURESTORAGE_CONFIG_DIR` exactly, or the default account when that variable is unset, and log one line; in every other case (another entrypoint such as `claude-desktop`, a credDir no account uses, `""`, bad input, no or broken config) it SHALL record nothing. It SHALL print nothing and exit 0 in all cases.
+- FR-3.22 (added 2026-10-27, ADR-0011) WHEN the user runs `ais default <account>` THE SYSTEM SHALL make the machine's default sign-in (Keychain item `Claude Code-credentials` and the `oauthAccount` key of `~/.claude.json`) hold that account's login by exchanging it with the login now in the default slot, so programs that start `claude` without `CLAUDE_SECURESTORAGE_CONFIG_DIR` (Infinitary crewmates and first mate) continue on that account; record the exchange in `state.json` and keep every ais command meaning the same account; read the secret only in memory, write it only through `security -i` on stdin, restore the first item if the second write fails, change nothing and exit 66 when either slot has no login, and print the holder when run without an account. `ais login` records the signed-in `oauthAccount` per account for this.
 Verification: `python3 -m unittest tests.test_switch tests.test_run tests.test_open tests.test_signals tests.test_snapshots` passes, including an open session started without ais, a fake `claude` that relies on the default SIGINT handler, and both `--settings` forms; manual check M2 in `docs/manual-checks.md` (session started on primary continues on secondary with the prior conversation visible, under 30 seconds end to end, timed by hand).
 
 ### FR-4 Status at a glance
@@ -245,6 +246,7 @@ Plan: `docs/superpowers/plans/2026-10-16-ais-mvp.md`.
 | FR-3.5, FR-3.15 | 13 | `tests.test_run` |
 | FR-3.16 to FR-3.20, FR-4.24 | #77 | `tests.test_use`, `tests.test_menu` |
 | FR-3.21 | #81 | `tests.test_record` |
+| FR-3.22 | ADR-0011 | `tests.test_default` |
 | FR-3.7 | 14 | `tests.test_snapshots` |
 | FR-3.8 | 11 | `tests.test_signals` |
 | FR-3.13 | 5 | `tests.test_providers` |

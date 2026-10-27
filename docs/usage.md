@@ -16,6 +16,18 @@ Setup and the full command list are in the [README](../README.md). This page is 
 
 To go back later, run `ais switch` again. To pick an older session: `ais switch --pick`.
 
+## Infinitary crewmates and the first mate stay on the spent account
+
+`ais switch` only changes the one `claude` it starts. Programs that start `claude` themselves, such as Infinitary, always use the machine's default sign-in. To move them to the other account without signing in again:
+
+```bash
+ais default secondary    # the default sign-in now holds Secondary's login
+ais default primary      # swap back
+ais default              # print which account the default sign-in holds
+```
+
+It exchanges the two logins, so no login is lost, and `ais run`, `ais switch` and the menu keep meaning the same accounts. Run `ais login primary` and `ais login secondary` once after upgrading so ais records each account's profile (needed so Infinitary notices the change). Running `claude` sessions keep the login they already loaded; Infinitary uses the new one on its next turn. See ADR-0011.
+
 ## Start new work on a given account
 
 ```bash

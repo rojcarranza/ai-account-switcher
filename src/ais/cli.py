@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, NoReturn, Optional
 
 from ais import __version__, core, menu, providers
-from ais.accounts import EXIT_USAGE, Config, load_config
+from ais.accounts import EXIT_USAGE, Config, apply_default_swap, load_config
 from ais.errors import AisError
 from ais.store import Store
 
@@ -34,6 +34,10 @@ def _parser() -> argparse.ArgumentParser:
     switch.add_argument("--session")
     switch.add_argument("--dry-run", action="store_true")
     switch.add_argument("--allow-api-key", action="store_true")
+    dflt = sub.add_parser("default", help="make the machine's default sign-in hold an account (ADR-0011)",
+                          allow_abbrev=False)
+    dflt.add_argument("account", nargs="?")  # missing -> print which account the default sign-in holds
+    dflt.add_argument("--dry-run", action="store_true")
     use = sub.add_parser("use", help="pick the account for this terminal window and start claude",
                          allow_abbrev=False)
     use.add_argument("account", nargs="?")  # missing -> print this window's account
@@ -69,7 +73,8 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
-def _context(started: float, config: Optional[Config] = None, cwd_optional: bool = False) -> core.Context:
+def _context(started: float, config: Optional[Config] = None, cwd_optional: bool = False,
+             swap: bool = True) -> core.Context:
     store = Store(Path.home())
     try:
         cwd = Path.cwd()
@@ -77,7 +82,15 @@ def _context(started: float, config: Optional[Config] = None, cwd_optional: bool
         if not cwd_optional:
             raise AisError(66, "the current folder no longer exists")
         cwd = Path.home()  # uninstall never reads the cwd
-    return core.Context(store, config or load_config(store, providers.REGISTRY),
+    if config is None:
+        config = load_config(store, providers.REGISTRY)
+        if swap:  # ADR-0011: the default sign-in may hold another account's login
+            try:
+                holds = store.read_json("state.json").get("default_holds")
+            except AisError:  # a damaged state.json is reported where it is used, not here
+                holds = None
+            config = apply_default_swap(config, holds)
+    return core.Context(store, config,
                         lambda a: providers.get(a.provider), dict(os.environ), cwd, started=started)
 
 
@@ -106,6 +119,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             if (ns.shell or ns.copy) and ns.account is None:
                 raise AisError(EXIT_USAGE, "--shell and --copy need an account")
             return core.cmd_use(_context(started), ns.account, ns.shell, ns.copy)
+        if ns.command == "default":  # works on the raw config: it manages the swap itself
+            return core.cmd_default(_context(started, swap=False), ns.account, ns.dry_run)
         if ns.command == "record":  # ADR-0010: a broken ais never blocks or clutters a session
             try:
                 return core.cmd_record(_context(started, cwd_optional=True), sys.stdin.read(core.HOOK_INPUT_MAX + 1))
@@ -117,7 +132,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return core.cmd_setup(_context(started, Config({}, "", {}, False)), ns.dry_run)
         if ns.command == "uninstall":  # works with a broken or missing config
             try:
-                ctx = _context(started, cwd_optional=True)
+                ctx = _context(started, cwd_optional=True, swap=False)
             except (AisError, OSError) as e:  # 3.9's Path.exists() raises on an unreadable folder
                 if os.path.lexists(str(Store(Path.home()).dir / "config.json")):  # missing = no warning
                     print("ais: warning: %s; the manual steps below are generic"

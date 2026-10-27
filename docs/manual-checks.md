@@ -101,3 +101,16 @@ Result: ____ (date ____)
 Expected: step 3 shows the session last used on Secondary; step 4 shows Primary; step 5 has no `record` line for the Desktop session; step 6 leaves the file as it was before step 1.
 
 Result: ____ (date ____)
+
+## M8 `ais default` on the real Keychain (FR-3.22, ADR-0011)
+
+Not covered by tests, which use a fake `security`: the real `security -i` parsing and the Keychain item's access list.
+
+1. `ais login primary` and `ais login secondary` once, then `ais default` (prints `primary`).
+2. `ais default secondary`. A Keychain prompt may appear; choose Always Allow.
+3. In a plain terminal: `claude auth status`, then a short `claude -p hi`.
+4. `ais status`, then `ais run secondary --dry-run` and `ais default primary`.
+
+Expected: step 3 runs on Secondary with no sign-in; step 4 still shows both accounts logged in and the dry run shows no `CLAUDE_SECURESTORAGE_CONFIG_DIR`; the last step restores Primary.
+
+Result: ____ (date ____)

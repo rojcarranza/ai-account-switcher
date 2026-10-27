@@ -82,6 +82,7 @@ Other ways to pick the session:
 ```bash
 ais switch secondary                                       # resume on a named account (also after a crash)
 ais switch --pick                                          # choose from the 5 newest in this folder
+ais default secondary                                      # let Infinitary and other programs use secondary (ADR-0011)
 ais switch --session 11587d78-f810-4c64-870f-d7c9c6058ce2  # a specific one
 ```
 

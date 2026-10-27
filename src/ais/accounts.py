@@ -2,7 +2,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Collection, Dict, Optional
 
 from ais.errors import AisError
@@ -19,10 +19,11 @@ class Account:
     provider: str
     cred_dir: Optional[str]
     desktop_data_dir: Optional[str] = None
+    swapped: bool = False  # ADR-0011: cred_dir is the other account's slot; the logical role is unchanged
 
     @property
     def is_default(self) -> bool:
-        return self.cred_dir is None
+        return (self.cred_dir is None) != self.swapped
 
 
 @dataclass
@@ -152,3 +153,16 @@ def load_config(store: Store, providers: Collection[str]) -> Config:
             desks[os.path.realpath(desktop)] = name
         accounts[name] = Account(name, label, provider, cred_dir, desktop)
     return Config(accounts, default, acks, privacy)
+
+
+def apply_default_swap(config: Config, holds: object) -> Config:
+    """ADR-0011: with `holds` naming the extra account whose login sits in the default slot, exchange the two
+    accounts' credDirs, so every command keeps meaning the same logical account. config.json is not rewritten."""
+    other = config.accounts.get(holds) if isinstance(holds, str) else None
+    default = config.accounts.get(config.default)
+    if other is None or default is None or other is default or other.cred_dir is None:
+        return config
+    accounts = dict(config.accounts)
+    accounts[default.name] = replace(default, cred_dir=other.cred_dir, swapped=True)
+    accounts[other.name] = replace(other, cred_dir=None, swapped=True)
+    return replace(config, accounts=accounts)

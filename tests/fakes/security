@@ -2,7 +2,9 @@
 # Fake keychain tool: refuses the secret-reading flags (also inside bundled short
 # options such as -ag); else prints $FAKE_SECURITY_ERR to stderr and exits $FAKE_SECURITY_RC;
 # with $FAKE_SECURITY_SLEEP it first hangs that many seconds.
+# With $FAKE_KEYCHAIN_DIR it is a stateful keychain (one file per service) instead: see security.keychain.py.
 [ -n "${FAKE_CALL_LOG:-}" ] && echo "security $*" >> "$FAKE_CALL_LOG"
+[ -n "${FAKE_KEYCHAIN_DIR:-}" ] && exec python3 "$0.keychain.py" "$@"
 for a in "$@"; do
     case "$a" in
         --*) ;;
